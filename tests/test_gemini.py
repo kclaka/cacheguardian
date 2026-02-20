@@ -4,10 +4,10 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-from cache_guard.config import CacheGuardConfig, PricingConfig
-from cache_guard.persistence.cache_registry import CacheRegistry
-from cache_guard.providers.gemini import GeminiProvider
-from cache_guard.types import Provider, SessionState
+from cacheguardian.config import CacheGuardConfig, PricingConfig
+from cacheguardian.persistence.cache_registry import CacheRegistry
+from cacheguardian.providers.gemini import GeminiProvider
+from cacheguardian.types import Provider, SessionState
 
 
 def _make_session(interval_seconds: float = 60, num_requests: int = 10, **kwargs) -> SessionState:

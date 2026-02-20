@@ -5,12 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from cache_guard.cache.fingerprint import (
+from cacheguardian.cache.fingerprint import (
     compute_fingerprint,
     compute_prefix_match_depth,
     find_divergence,
 )
-from cache_guard.types import CacheBreakWarning, DivergencePoint, Fingerprint
+from cacheguardian.types import CacheBreakWarning, DivergencePoint, Fingerprint
 
 
 class L1Cache:
@@ -147,7 +147,7 @@ class L1CheckResult:
         if label == "system":
             suggestion = "Consider using system messages instead of modifying the system prompt. Move dynamic content (dates, user names) to a <system-reminder> in the next user message."
         elif label == "tools":
-            suggestion = "Tool definitions changed. If you added/removed tools, consider using deferred tool loading (stubs) instead. If tool order changed, cache-guard's auto_fix should handle this."
+            suggestion = "Tool definitions changed. If you added/removed tools, consider using deferred tool loading (stubs) instead. If tool order changed, cacheguardian's auto_fix should handle this."
         elif label.startswith("message[") and self.divergence.segment_index < 3:
             suggestion = "Early message changed. Ensure conversation history is append-only."
 

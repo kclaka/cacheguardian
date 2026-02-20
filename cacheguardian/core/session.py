@@ -1,4 +1,4 @@
-"""Session tracking for cache-guard."""
+"""Session tracking for cacheguardian."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import hashlib
 from datetime import datetime
 from typing import Any, Optional
 
-from cache_guard.cache.fingerprint import hash_segment
-from cache_guard.types import Provider, SessionState
+from cacheguardian.cache.fingerprint import hash_segment
+from cacheguardian.types import Provider, SessionState
 
 
 class SessionTracker:

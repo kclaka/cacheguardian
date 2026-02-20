@@ -6,15 +6,15 @@ import copy
 import logging
 from typing import Any, Optional
 
-from cache_guard.config import CacheGuardConfig
-from cache_guard.core.metrics import MetricsCollector
-from cache_guard.core.optimizer import sort_tools
-from cache_guard.core.promoter import CachePromoter
-from cache_guard.persistence.cache_registry import CacheRegistry
-from cache_guard.providers.base import CacheProvider
-from cache_guard.types import CacheMetrics, Provider, SessionState
+from cacheguardian.config import CacheGuardConfig
+from cacheguardian.core.metrics import MetricsCollector
+from cacheguardian.core.optimizer import sort_tools
+from cacheguardian.core.promoter import CachePromoter
+from cacheguardian.persistence.cache_registry import CacheRegistry
+from cacheguardian.providers.base import CacheProvider
+from cacheguardian.types import CacheMetrics, Provider, SessionState
 
-logger = logging.getLogger("cache_guard")
+logger = logging.getLogger("cacheguardian")
 
 
 class GeminiProvider(CacheProvider):

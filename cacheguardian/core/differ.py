@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from cache_guard.cache.fingerprint import (
+from cacheguardian.cache.fingerprint import (
     compute_fingerprint,
     compute_prefix_match_depth,
     find_divergence,
     normalize_json,
 )
-from cache_guard.core.optimizer import detect_tool_schema_changes
-from cache_guard.types import CacheBreakWarning, DivergencePoint, Fingerprint
+from cacheguardian.core.optimizer import detect_tool_schema_changes
+from cacheguardian.types import CacheBreakWarning, DivergencePoint, Fingerprint
 
 
 class PromptDiffer:
@@ -120,7 +120,7 @@ class PromptDiffer:
 
 def _content_hash(content: Any) -> str:
     """Quick hash for content comparison."""
-    from cache_guard.cache.fingerprint import hash_segment
+    from cacheguardian.cache.fingerprint import hash_segment
     return hash_segment(content)
 
 

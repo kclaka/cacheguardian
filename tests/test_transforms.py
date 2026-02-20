@@ -1,7 +1,7 @@
 """Tests for optimizer transforms: tool sorting, schema diffing, JSON stabilization."""
 
 import pytest
-from cache_guard.core.optimizer import (
+from cacheguardian.core.optimizer import (
     SystemPromptTemplate,
     detect_tool_schema_changes,
     reorder_static_first,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from cache_guard.config import CacheGuardConfig, PricingConfig
-from cache_guard.types import PromotionDecision, Provider, SessionState
+from cacheguardian.config import CacheGuardConfig, PricingConfig
+from cacheguardian.types import PromotionDecision, Provider, SessionState
 
 
 class CachePromoter:

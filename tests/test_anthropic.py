@@ -1,9 +1,9 @@
 """Tests for Anthropic provider: cache_control, breakpoints, tool sorting, TTL."""
 
 import pytest
-from cache_guard.config import CacheGuardConfig
-from cache_guard.providers.anthropic import AnthropicProvider
-from cache_guard.types import Provider, SessionState
+from cacheguardian.config import CacheGuardConfig
+from cacheguardian.providers.anthropic import AnthropicProvider
+from cacheguardian.types import Provider, SessionState
 
 
 def _make_session(**kwargs) -> SessionState:

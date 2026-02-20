@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
-logger = logging.getLogger("cache_guard")
+logger = logging.getLogger("cacheguardian")
 
 
 class L2Cache:
@@ -48,7 +48,7 @@ class L2Cache:
         if not self._available:
             return
         try:
-            key = f"cache_guard:prefix:{prefix_hash}"
+            key = f"cacheguardian:prefix:{prefix_hash}"
             value = json.dumps({
                 "provider": provider,
                 "model": model,
@@ -64,7 +64,7 @@ class L2Cache:
         if not self._available:
             return None
         try:
-            key = f"cache_guard:prefix:{prefix_hash}"
+            key = f"cacheguardian:prefix:{prefix_hash}"
             value = self._client.get(key)
             if value:
                 return json.loads(value)
@@ -81,7 +81,7 @@ class L2Cache:
         if not self._available:
             return
         try:
-            key = f"cache_guard:gemini_cache:{content_hash}"
+            key = f"cacheguardian:gemini_cache:{content_hash}"
             value = json.dumps({
                 "cache_name": cache_name,
                 "stored_at": datetime.now().isoformat(),
@@ -95,7 +95,7 @@ class L2Cache:
         if not self._available:
             return None
         try:
-            key = f"cache_guard:gemini_cache:{content_hash}"
+            key = f"cacheguardian:gemini_cache:{content_hash}"
             value = self._client.get(key)
             if value:
                 data = json.loads(value)
@@ -109,7 +109,7 @@ class L2Cache:
         if not self._available:
             return
         try:
-            key = f"cache_guard:gemini_cache:{content_hash}"
+            key = f"cacheguardian:gemini_cache:{content_hash}"
             self._client.delete(key)
         except Exception as e:
             logger.debug("L2 remove_gemini_cache_id failed: %s", e)
@@ -123,7 +123,7 @@ class L2Cache:
         if not self._available:
             return 0
         try:
-            key = f"cache_guard:rate:{provider}:{window_key}"
+            key = f"cacheguardian:rate:{provider}:{window_key}"
             count = self._client.incr(key)
             if count == 1:
                 self._client.expire(key, ttl_seconds)

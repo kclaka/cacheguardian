@@ -2,9 +2,9 @@
 
 import pytest
 from datetime import datetime, timedelta
-from cache_guard.config import CacheGuardConfig, PricingConfig
-from cache_guard.core.promoter import CachePromoter
-from cache_guard.types import Provider, SessionState
+from cacheguardian.config import CacheGuardConfig, PricingConfig
+from cacheguardian.core.promoter import CachePromoter
+from cacheguardian.types import Provider, SessionState
 
 
 def _make_session(

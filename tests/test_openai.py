@@ -1,9 +1,9 @@
 """Tests for OpenAI provider: cache_key, retention, reordering, thresholds."""
 
 import pytest
-from cache_guard.config import CacheGuardConfig
-from cache_guard.providers.openai import OpenAIProvider
-from cache_guard.types import Provider, SessionState
+from cacheguardian.config import CacheGuardConfig
+from cacheguardian.providers.openai import OpenAIProvider
+from cacheguardian.types import Provider, SessionState
 from datetime import datetime, timedelta
 
 

@@ -1,7 +1,7 @@
 """Tests for L1 cache: fingerprint cache, divergence detection, warnings."""
 
 import pytest
-from cache_guard.cache.l1 import L1Cache
+from cacheguardian.cache.l1 import L1Cache
 
 
 class TestL1Cache:

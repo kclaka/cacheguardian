@@ -1,26 +1,26 @@
-"""cache-guard: Universal prompt cache optimizer for Anthropic, OpenAI & Gemini.
+"""cacheguardian: Universal prompt cache optimizer for Anthropic, OpenAI & Gemini.
 
 Usage:
-    import cache_guard
+    import cacheguardian
 
     # Wrap any LLM SDK client
-    client = cache_guard.wrap(anthropic.Anthropic())
-    client = cache_guard.wrap(openai.OpenAI())
-    client = cache_guard.wrap(genai.Client())
+    client = cacheguardian.wrap(anthropic.Anthropic())
+    client = cacheguardian.wrap(openai.OpenAI())
+    client = cacheguardian.wrap(genai.Client())
 
     # Async clients work too
-    client = cache_guard.wrap(anthropic.AsyncAnthropic())
+    client = cacheguardian.wrap(anthropic.AsyncAnthropic())
 
     # Dry-run: test cache behavior without API calls
-    result = cache_guard.dry_run(client, model="...", messages=[...])
+    result = cacheguardian.dry_run(client, model="...", messages=[...])
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from cache_guard.config import CacheGuardConfig
-from cache_guard.types import DryRunResult
+from cacheguardian.config import CacheGuardConfig
+from cacheguardian.types import DryRunResult
 
 __version__ = "0.1.0"
 
@@ -30,7 +30,7 @@ _dry_run_impl = None
 
 
 def wrap(client: Any, **kwargs: Any) -> Any:
-    """Wrap an LLM SDK client with cache-guard middleware.
+    """Wrap an LLM SDK client with cacheguardian middleware.
 
     Supports: anthropic.Anthropic, anthropic.AsyncAnthropic,
               openai.OpenAI, openai.AsyncOpenAI,
@@ -43,7 +43,7 @@ def wrap(client: Any, **kwargs: Any) -> Any:
     Returns:
         A wrapped client that transparently optimizes caching.
     """
-    from cache_guard.middleware.interceptor import wrap_client
+    from cacheguardian.middleware.interceptor import wrap_client
     return wrap_client(client, **kwargs)
 
 
@@ -51,13 +51,13 @@ def dry_run(client: Any, **request_kwargs: Any) -> DryRunResult:
     """Test if a request would hit the cache without making an API call.
 
     Args:
-        client: A cache-guard wrapped client.
+        client: A cacheguardian wrapped client.
         **request_kwargs: The same kwargs you'd pass to messages.create() etc.
 
     Returns:
         DryRunResult with predictions about cache behavior.
     """
-    from cache_guard.middleware.interceptor import run_dry_run
+    from cacheguardian.middleware.interceptor import run_dry_run
     return run_dry_run(client, **request_kwargs)
 
 

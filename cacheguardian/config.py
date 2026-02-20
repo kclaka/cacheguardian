@@ -1,4 +1,4 @@
-"""Configuration for cache-guard."""
+"""Configuration for cacheguardian."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ ALL_PRICING: dict[str, dict[str, PricingConfig]] = {
 
 @dataclass
 class CacheGuardConfig:
-    """Configuration for cache-guard middleware."""
+    """Configuration for cacheguardian middleware."""
 
     # General
     auto_fix: bool = True

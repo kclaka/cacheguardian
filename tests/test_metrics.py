@@ -3,9 +3,9 @@
 import pytest
 from unittest.mock import MagicMock
 
-from cache_guard.config import CacheGuardConfig, PricingConfig
-from cache_guard.core.metrics import MetricsCollector
-from cache_guard.types import Provider
+from cacheguardian.config import CacheGuardConfig, PricingConfig
+from cacheguardian.core.metrics import MetricsCollector
+from cacheguardian.types import Provider
 
 
 class TestAnthropicMetrics:

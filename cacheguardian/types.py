@@ -1,4 +1,4 @@
-"""Core type definitions for cache-guard."""
+"""Core type definitions for cacheguardian."""
 
 from __future__ import annotations
 

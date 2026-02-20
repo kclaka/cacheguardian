@@ -3,15 +3,46 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cache-guard"
+name = "cacheguardian"
 version = "0.1.0"
 description = "Universal prompt cache optimizer for Anthropic, OpenAI & Gemini"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
+authors = [
+    { name = "Kenny Igbechi", email = "hello@kennyigbechi.com" },
+]
+keywords = [
+    "llm",
+    "prompt-caching",
+    "anthropic",
+    "openai",
+    "gemini",
+    "cache",
+    "optimization",
+    "cost-savings",
+    "middleware",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 dependencies = [
     "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kclaka/cacheguardian"
+Repository = "https://github.com/kclaka/cacheguardian"
+Issues = "https://github.com/kclaka/cacheguardian/issues"
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39.0"]
@@ -31,7 +62,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["cache_guard*"]
+include = ["cacheguardian*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

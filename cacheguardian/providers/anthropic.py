@@ -5,11 +5,11 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from cache_guard.config import CacheGuardConfig
-from cache_guard.core.metrics import MetricsCollector
-from cache_guard.core.optimizer import sort_tools, stabilize_json_keys
-from cache_guard.providers.base import CacheProvider
-from cache_guard.types import CacheMetrics, Provider, SessionState
+from cacheguardian.config import CacheGuardConfig
+from cacheguardian.core.metrics import MetricsCollector
+from cacheguardian.core.optimizer import sort_tools, stabilize_json_keys
+from cacheguardian.providers.base import CacheProvider
+from cacheguardian.types import CacheMetrics, Provider, SessionState
 
 
 # Minimum cacheable tokens per model family
