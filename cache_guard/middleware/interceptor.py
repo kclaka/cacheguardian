@@ -1,0 +1,376 @@
+"""Middleware interceptor: wraps SDK clients and runs the L1→L2→L3 pipeline."""
+
+from __future__ import annotations
+
+import logging
+import random
+import time
+from typing import Any, Optional
+
+from cache_guard.cache.l1 import L1Cache
+from cache_guard.cache.l2 import L2Cache
+from cache_guard.config import CacheGuardConfig
+from cache_guard.core.differ import PromptDiffer
+from cache_guard.core.logger import (
+    log_cache_break,
+    log_cache_hit,
+    log_cache_miss,
+    log_session_summary,
+    setup_logging,
+)
+from cache_guard.core.session import SessionTracker
+from cache_guard.providers.base import CacheProvider
+from cache_guard.types import (
+    CacheBreakWarning,
+    CacheMetrics,
+    DryRunResult,
+    Provider,
+    SessionState,
+)
+
+logger = logging.getLogger("cache_guard")
+
+# Store for wrapped client state
+_GUARD_ATTR = "_cache_guard_state"
+
+
+class CacheGuardState:
+    """Internal state attached to a wrapped client."""
+
+    def __init__(
+        self,
+        provider: CacheProvider,
+        config: CacheGuardConfig,
+        l1: L1Cache,
+        l2: L2Cache,
+        sessions: SessionTracker,
+        differ: PromptDiffer,
+    ) -> None:
+        self.provider = provider
+        self.config = config
+        self.l1 = l1
+        self.l2 = l2
+        self.sessions = sessions
+        self.differ = differ
+
+
+def wrap_client(client: Any, **kwargs: Any) -> Any:
+    """Wrap an LLM SDK client with cache-guard middleware.
+
+    Auto-detects the provider from the client type and wraps the appropriate
+    methods (messages.create for Anthropic, chat.completions.create for OpenAI,
+    models.generate_content for Gemini).
+    """
+    config = _build_config(kwargs)
+    setup_logging(config.log_level)
+
+    provider_impl = _detect_provider(client, config)
+    is_async = _is_async_client(client)
+
+    l1 = L1Cache()
+    l2 = L2Cache(config.l2_backend)
+    sessions = SessionTracker()
+    differ = PromptDiffer()
+
+    state = CacheGuardState(
+        provider=provider_impl,
+        config=config,
+        l1=l1,
+        l2=l2,
+        sessions=sessions,
+        differ=differ,
+    )
+
+    if is_async:
+        from cache_guard.middleware.async_interceptor import wrap_async_client
+        return wrap_async_client(client, state)
+
+    return _wrap_sync_client(client, state)
+
+
+def run_dry_run(client: Any, **request_kwargs: Any) -> DryRunResult:
+    """Test if a request would hit the cache without making an API call."""
+    state: CacheGuardState | None = getattr(client, _GUARD_ATTR, None)
+    if state is None:
+        raise ValueError("Client is not wrapped with cache-guard. Use cache_guard.wrap(client) first.")
+
+    parts = state.provider.extract_request_parts(request_kwargs)
+    model = parts.get("model", "")
+
+    session = state.sessions.get_or_create(
+        provider=state.provider.get_provider(),
+        model=model,
+        system=parts.get("system"),
+        tools=parts.get("tools"),
+    )
+
+    # L1 check
+    l1_result = state.l1.check(
+        session_id=session.session_id,
+        system=parts.get("system"),
+        tools=parts.get("tools"),
+        messages=parts.get("messages"),
+    )
+
+    # Collect warnings
+    warnings: list[CacheBreakWarning] = []
+    if not l1_result.is_first_request:
+        w = l1_result.to_warning()
+        if w:
+            warnings.append(w)
+
+    if session.last_request_kwargs:
+        diff_warnings = state.differ.diff(
+            session.last_request_kwargs, request_kwargs,
+            prev_fingerprint=state.l1.get_fingerprint(session.session_id),
+        )
+        warnings.extend(diff_warnings)
+
+    # Estimate savings
+    estimated_savings = 0.0
+    if l1_result.hit:
+        pricing = state.config.get_pricing(
+            state.provider.get_provider().value, model,
+        )
+        estimated_tokens = l1_result.fingerprint.token_estimate
+        estimated_savings = estimated_tokens * (pricing.base_input - pricing.cache_read) / 1_000_000
+
+    from cache_guard.core.logger import log_dry_run
+    log_dry_run(l1_result.hit, estimated_savings, warnings)
+
+    return DryRunResult(
+        would_hit_cache=l1_result.hit,
+        estimated_cached_tokens=l1_result.fingerprint.token_estimate if l1_result.hit else 0,
+        estimated_uncached_tokens=0 if l1_result.hit else l1_result.fingerprint.token_estimate,
+        estimated_savings=estimated_savings,
+        prefix_match_depth=l1_result.prefix_match_depth,
+        warnings=warnings,
+        fingerprint=l1_result.fingerprint,
+    )
+
+
+def _wrap_sync_client(client: Any, state: CacheGuardState) -> Any:
+    """Wrap a synchronous SDK client."""
+    provider_type = state.provider.get_provider()
+
+    if provider_type == Provider.ANTHROPIC:
+        _wrap_anthropic_sync(client, state)
+    elif provider_type == Provider.OPENAI:
+        _wrap_openai_sync(client, state)
+    elif provider_type == Provider.GEMINI:
+        _wrap_gemini_sync(client, state)
+
+    setattr(client, _GUARD_ATTR, state)
+    return client
+
+
+def _wrap_anthropic_sync(client: Any, state: CacheGuardState) -> None:
+    """Wrap anthropic.Anthropic().messages.create()."""
+    original_create = client.messages.create
+
+    def guarded_create(**kwargs: Any) -> Any:
+        return _run_pipeline(state, kwargs, original_create)
+
+    client.messages.create = guarded_create
+
+    # Also wrap stream if present
+    if hasattr(client.messages, "stream"):
+        original_stream = client.messages.stream
+
+        def guarded_stream(**kwargs: Any) -> Any:
+            # For streaming, we can still optimize the request but metrics come later
+            kwargs = _pre_request(state, kwargs)
+            return original_stream(**kwargs)
+
+        client.messages.stream = guarded_stream
+
+
+def _wrap_openai_sync(client: Any, state: CacheGuardState) -> None:
+    """Wrap openai.OpenAI().chat.completions.create()."""
+    original_create = client.chat.completions.create
+
+    def guarded_create(**kwargs: Any) -> Any:
+        return _run_pipeline(state, kwargs, original_create)
+
+    client.chat.completions.create = guarded_create
+
+
+def _wrap_gemini_sync(client: Any, state: CacheGuardState) -> None:
+    """Wrap genai.Client().models.generate_content()."""
+    original_generate = client.models.generate_content
+
+    def guarded_generate(**kwargs: Any) -> Any:
+        return _run_pipeline(state, kwargs, original_generate)
+
+    client.models.generate_content = guarded_generate
+
+
+def _run_pipeline(state: CacheGuardState, kwargs: dict[str, Any], original_fn: Any) -> Any:
+    """The full L1 → transform → L3 → metrics pipeline."""
+    # Pre-request: L1 check + transforms
+    kwargs, session, l1_result = _pre_request_full(state, kwargs)
+
+    # Call the original SDK method (L3)
+    response = original_fn(**kwargs)
+
+    # Post-request: metrics + logging
+    _post_request(state, kwargs, response, session, l1_result)
+
+    # Privacy mode: add timing jitter
+    if state.config.privacy_mode:
+        jitter_ms = random.randint(*state.config.privacy_jitter_ms)
+        time.sleep(jitter_ms / 1000)
+
+    return response
+
+
+def _pre_request(state: CacheGuardState, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Run pre-request transforms only (for streaming)."""
+    parts = state.provider.extract_request_parts(kwargs)
+    model = parts.get("model", "")
+
+    session = state.sessions.get_or_create(
+        provider=state.provider.get_provider(),
+        model=model,
+        system=parts.get("system"),
+        tools=parts.get("tools"),
+    )
+
+    return state.provider.intercept_request(kwargs, session)
+
+
+def _pre_request_full(state: CacheGuardState, kwargs: dict[str, Any]) -> tuple[dict, SessionState, Any]:
+    """Full pre-request: L1 check + diff + transforms."""
+    parts = state.provider.extract_request_parts(kwargs)
+    model = parts.get("model", "")
+
+    session = state.sessions.get_or_create(
+        provider=state.provider.get_provider(),
+        model=model,
+        system=parts.get("system"),
+        tools=parts.get("tools"),
+    )
+
+    # L1 cache check
+    l1_result = state.l1.check(
+        session_id=session.session_id,
+        system=parts.get("system"),
+        tools=parts.get("tools"),
+        messages=parts.get("messages"),
+    )
+
+    # Diff against previous request
+    if session.last_request_kwargs and not l1_result.is_first_request:
+        warnings = state.differ.diff(
+            session.last_request_kwargs,
+            kwargs,
+            prev_fingerprint=state.l1.get_fingerprint(session.session_id),
+        )
+        for w in warnings:
+            log_cache_break(w)
+
+        # Also check L1 warning
+        l1_warning = l1_result.to_warning()
+        if l1_warning and not warnings:
+            log_cache_break(l1_warning)
+
+    # Apply provider-specific transforms
+    kwargs = state.provider.intercept_request(kwargs, session)
+
+    return kwargs, session, l1_result
+
+
+def _post_request(
+    state: CacheGuardState,
+    kwargs: dict[str, Any],
+    response: Any,
+    session: SessionState,
+    l1_result: Any,
+) -> None:
+    """Post-request: extract metrics, update L1/L2, log."""
+    parts = state.provider.extract_request_parts(kwargs)
+    model = parts.get("model", "")
+
+    metrics = state.provider.extract_metrics(response, model)
+
+    # Update session
+    state.sessions.record_request(
+        session,
+        input_tokens=metrics.uncached_tokens,
+        cached_tokens=metrics.cached_tokens,
+        cache_write_tokens=metrics.cache_write_tokens,
+        output_tokens=metrics.output_tokens,
+        cost_actual=metrics.estimated_cost_actual,
+        cost_without_cache=metrics.estimated_cost_without_cache,
+    )
+    state.sessions.update_hashes(
+        session,
+        system=parts.get("system"),
+        tools=parts.get("tools"),
+    )
+    session.last_request_kwargs = kwargs
+
+    # Update L1 cache
+    state.l1.update(session.session_id, l1_result.fingerprint)
+
+    # Update L2 if available
+    if state.l2.available and l1_result.fingerprint:
+        state.l2.store_prefix_hash(
+            prefix_hash=l1_result.fingerprint.combined,
+            provider=state.provider.get_provider().value,
+            model=model,
+            token_count=metrics.total_input_tokens,
+        )
+
+    # Log
+    if metrics.cache_hit_rate > 0.5:
+        log_cache_hit(metrics, session)
+    else:
+        reason = ""
+        if l1_result and not l1_result.hit and not l1_result.is_first_request:
+            reason = f"prefix changed at {l1_result.divergence.segment_label}" if l1_result.divergence else "prefix changed"
+        log_cache_miss(metrics, session, reason)
+
+    # Check alert threshold
+    if session.request_count > 3 and session.cache_hit_rate < state.config.min_cache_hit_rate:
+        logger.warning(
+            "[cache-guard] ALERT: Session cache hit rate %.1f%% is below threshold %.1f%%",
+            session.cache_hit_rate * 100,
+            state.config.min_cache_hit_rate * 100,
+        )
+
+
+def _detect_provider(client: Any, config: CacheGuardConfig) -> CacheProvider:
+    """Auto-detect which provider the client belongs to."""
+    client_type = type(client).__module__ + "." + type(client).__qualname__
+
+    if "anthropic" in client_type.lower():
+        from cache_guard.providers.anthropic import AnthropicProvider
+        return AnthropicProvider(config)
+    elif "openai" in client_type.lower():
+        from cache_guard.providers.openai import OpenAIProvider
+        return OpenAIProvider(config)
+    elif "google" in client_type.lower() or "genai" in client_type.lower():
+        from cache_guard.providers.gemini import GeminiProvider
+        return GeminiProvider(config, gemini_client=client)
+    else:
+        raise ValueError(
+            f"Unknown client type: {client_type}. "
+            "Supported: anthropic.Anthropic, openai.OpenAI, google.genai.Client "
+            "(and their async variants)."
+        )
+
+
+def _is_async_client(client: Any) -> bool:
+    """Check if the client is an async variant."""
+    name = type(client).__name__.lower()
+    return "async" in name
+
+
+def _build_config(kwargs: dict[str, Any]) -> CacheGuardConfig:
+    """Build CacheGuardConfig from wrap() kwargs."""
+    config_fields = {
+        f.name for f in CacheGuardConfig.__dataclass_fields__.values()
+    }
+    config_kwargs = {k: v for k, v in kwargs.items() if k in config_fields}
+    return CacheGuardConfig(**config_kwargs)

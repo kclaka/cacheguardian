@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cache-guard"
+version = "0.1.0"
+description = "Universal prompt cache optimizer for Anthropic, OpenAI & Gemini"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.39.0"]
+openai = ["openai>=1.50.0"]
+gemini = ["google-genai>=1.0.0"]
+redis = ["redis>=5.0.0"]
+all = [
+    "anthropic>=0.39.0",
+    "openai>=1.50.0",
+    "google-genai>=1.0.0",
+    "redis>=5.0.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.12.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["cache_guard*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
