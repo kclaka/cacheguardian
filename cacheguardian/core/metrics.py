@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from cache_guard.config import CacheGuardConfig, PricingConfig
-from cache_guard.types import CacheMetrics, CostEstimate, Provider
+from cacheguardian.config import CacheGuardConfig, PricingConfig
+from cacheguardian.types import CacheMetrics, CostEstimate, Provider
 
 
 class MetricsCollector:

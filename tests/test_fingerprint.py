@@ -1,7 +1,7 @@
 """Tests for fingerprint engine: normalization, rolling hash, segment comparison."""
 
 import pytest
-from cache_guard.cache.fingerprint import (
+from cacheguardian.cache.fingerprint import (
     compute_fingerprint,
     compute_prefix_match_depth,
     find_divergence,

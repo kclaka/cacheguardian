@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/license-MIT-lightgrey.svg" alt="MIT License">
 </p>
 
-<h1 align="center">Cache Guard</h1>
+<h1 align="center">CacheGuardian</h1>
 
 <p align="center">
   <strong>Stop overpaying for LLM API calls you've already made.</strong>
@@ -32,17 +32,17 @@ The result? You pay **full price** for tokens the provider *already computed*, a
 
 ## The Solution
 
-Cache Guard wraps your existing SDK client in **one line of code**. It detects cache breaks locally in **< 1 millisecond**, automatically fixes the most common mistakes, and logs exactly how much money you're saving — or wasting — on every single call.
+CacheGuardian wraps your existing SDK client in **one line of code**. It detects cache breaks locally in **< 1 millisecond**, automatically fixes the most common mistakes, and logs exactly how much money you're saving — or wasting — on every single call.
 
 ```python
-import cache_guard
+import cacheguardian
 import anthropic
 
 # Before: client = anthropic.Anthropic()
-client = cache_guard.wrap(anthropic.Anthropic())
+client = cacheguardian.wrap(anthropic.Anthropic())
 
 # Everything else stays exactly the same.
-# Cache Guard works silently in the background.
+# CacheGuardian works silently in the background.
 response = client.messages.create(
     model="claude-sonnet-4-20250514",
     max_tokens=1024,
@@ -53,7 +53,7 @@ response = client.messages.create(
 ```
 
 ```
-[cache-guard] L1 HIT | Cache hit 94.2% | Saved $0.0340 | Session total: $1.24 saved
+[cacheguardian] L1 HIT | Cache hit 94.2% | Saved $0.0340 | Session total: $1.24 saved
 ```
 
 ---
@@ -61,23 +61,23 @@ response = client.messages.create(
 ## Installation
 
 ```bash
-pip install cache-guard
+pip install cacheguardian
 ```
 
 Then install it alongside the provider(s) you use:
 
 ```bash
 # Anthropic Claude
-pip install cache-guard anthropic
+pip install cacheguardian anthropic
 
 # OpenAI GPT / o-series
-pip install cache-guard openai
+pip install cacheguardian openai
 
 # Google Gemini
-pip install cache-guard google-genai
+pip install cacheguardian google-genai
 
 # Optional: Redis for distributed caching (L2)
-pip install cache-guard redis
+pip install cacheguardian redis
 ```
 
 **Requirements:** Python 3.10+
@@ -89,10 +89,10 @@ pip install cache-guard redis
 ### Anthropic
 
 ```python
-import cache_guard
+import cacheguardian
 import anthropic
 
-client = cache_guard.wrap(anthropic.Anthropic())
+client = cacheguardian.wrap(anthropic.Anthropic())
 
 response = client.messages.create(
     model="claude-sonnet-4-20250514",
@@ -112,7 +112,7 @@ response = client.messages.create(
 )
 ```
 
-**What Cache Guard does automatically:**
+**What CacheGuardian does automatically:**
 
 | Optimization | What it does |
 |---|---|
@@ -125,10 +125,10 @@ response = client.messages.create(
 ### OpenAI
 
 ```python
-import cache_guard
+import cacheguardian
 import openai
 
-client = cache_guard.wrap(openai.OpenAI())
+client = cacheguardian.wrap(openai.OpenAI())
 
 response = client.chat.completions.create(
     model="gpt-4o",
@@ -139,7 +139,7 @@ response = client.chat.completions.create(
 )
 ```
 
-**What Cache Guard does automatically:**
+**What CacheGuardian does automatically:**
 
 | Optimization | What it does |
 |---|---|
@@ -152,10 +152,10 @@ response = client.chat.completions.create(
 ### Google Gemini
 
 ```python
-import cache_guard
+import cacheguardian
 from google import genai
 
-client = cache_guard.wrap(genai.Client())
+client = cacheguardian.wrap(genai.Client())
 
 response = client.models.generate_content(
     model="gemini-2.5-flash",
@@ -164,7 +164,7 @@ response = client.models.generate_content(
 )
 ```
 
-**What Cache Guard does automatically:**
+**What CacheGuardian does automatically:**
 
 | Optimization | What it does |
 |---|---|
@@ -175,13 +175,13 @@ response = client.models.generate_content(
 
 ### Async Clients
 
-Cache Guard supports async clients out of the box. All diffing and metric extraction runs via `asyncio.to_thread()` so the event loop is never blocked.
+CacheGuardian supports async clients out of the box. All diffing and metric extraction runs via `asyncio.to_thread()` so the event loop is never blocked.
 
 ```python
-import cache_guard
+import cacheguardian
 import anthropic
 
-client = cache_guard.wrap(anthropic.AsyncAnthropic())
+client = cacheguardian.wrap(anthropic.AsyncAnthropic())
 
 # Use await as normal
 response = await client.messages.create(
@@ -197,13 +197,13 @@ Works with `AsyncAnthropic`, `AsyncOpenAI`, and Gemini's async methods.
 
 ## How It Works
 
-Cache Guard uses a **tiered L1 / L2 / L3 architecture** inspired by CPU cache hierarchies and production inference gateways:
+CacheGuardian uses a **tiered L1 / L2 / L3 architecture** inspired by CPU cache hierarchies and production inference gateways:
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │                     Your Application                          │
 ├───────────────────────────────────────────────────────────────┤
-│                    cache_guard.wrap()                          │
+│                    cacheguardian.wrap()                          │
 ├──────────┬────────────────────────────────────┬───────────────┤
 │          │                                    │               │
 │    L1    │  Local Python Dict                 │    < 1 ms     │
@@ -226,7 +226,7 @@ Cache Guard uses a **tiered L1 / L2 / L3 architecture** inspired by CPU cache hi
 
 ### L1: The Secret Sauce
 
-Instead of hashing your entire prompt, Cache Guard hashes it in **segments**:
+Instead of hashing your entire prompt, CacheGuardian hashes it in **segments**:
 
 ```
 system prompt  →  sha256  →  "a3f1..."
@@ -250,15 +250,15 @@ When your next request comes in, it compares segment hashes sequentially. The mo
 Test whether your prompt would hit the cache — without making an API call.
 
 ```python
-import cache_guard
+import cacheguardian
 
-client = cache_guard.wrap(anthropic.Anthropic())
+client = cacheguardian.wrap(anthropic.Anthropic())
 
 # First, make a real call to establish the cache
 client.messages.create(model="claude-sonnet-4-20250514", ...)
 
 # Now test a new prompt against the cache for free
-result = cache_guard.dry_run(
+result = cacheguardian.dry_run(
     client,
     model="claude-sonnet-4-20250514",
     system="You are a helpful assistant.",
@@ -272,7 +272,7 @@ print(result.warnings)              # [CacheBreakWarning(...)]
 ```
 
 ```
-[cache-guard] DRY RUN — would HIT cache | Estimated savings: $0.0340
+[cacheguardian] DRY RUN — would HIT cache | Estimated savings: $0.0340
 ```
 
 Zero cost. Instant feedback. Iterate on your prompt structure before spending a cent.
@@ -282,7 +282,7 @@ Zero cost. Instant feedback. Iterate on your prompt structure before spending a 
 ## Configuration
 
 ```python
-client = cache_guard.wrap(
+client = cacheguardian.wrap(
     anthropic.Anthropic(),
 
     # Automatically fix safe issues (tool sorting, cache_control injection)
@@ -314,12 +314,12 @@ client = cache_guard.wrap(
 
 ### Pricing Overrides
 
-Cache Guard ships with default pricing tables for all supported models. If prices change, override them:
+CacheGuardian ships with default pricing tables for all supported models. If prices change, override them:
 
 ```python
-from cache_guard.config import PricingConfig
+from cacheguardian.config import PricingConfig
 
-client = cache_guard.wrap(
+client = cacheguardian.wrap(
     anthropic.Anthropic(),
     pricing_overrides={
         "anthropic": {
@@ -339,7 +339,7 @@ client = cache_guard.wrap(
 
 ## The Promotion Formula
 
-For Gemini (explicit `CachedContent`) and Anthropic (1-hour TTL), Cache Guard uses a break-even formula to decide when upgrading is worth the cost:
+For Gemini (explicit `CachedContent`) and Anthropic (1-hour TTL), CacheGuardian uses a break-even formula to decide when upgrading is worth the cost:
 
 ```
 N  >  (C_write + S × T) / (C_input − C_cache_read)
@@ -354,16 +354,16 @@ N  >  (C_write + S × T) / (C_input − C_cache_read)
 | **C_input** | Standard input token cost |
 | **C_cache_read** | Discounted cache read cost |
 
-Cache Guard tracks your request frequency automatically and promotes when **N** crosses the break-even threshold.
+CacheGuardian tracks your request frequency automatically and promotes when **N** crosses the break-even threshold.
 
 ---
 
 ## System Prompt Templates
 
-Dynamic content in system prompts (dates, user names, config values) is one of the most common cache killers. Cache Guard provides a template pattern that keeps the cache-friendly static part as the system prompt and injects dynamic values as messages instead:
+Dynamic content in system prompts (dates, user names, config values) is one of the most common cache killers. CacheGuardian provides a template pattern that keeps the cache-friendly static part as the system prompt and injects dynamic values as messages instead:
 
 ```python
-from cache_guard.core.optimizer import SystemPromptTemplate
+from cacheguardian.core.optimizer import SystemPromptTemplate
 
 template = SystemPromptTemplate(
     "You are a helpful assistant. The current date is {date}. User: {user_name}."
@@ -384,7 +384,7 @@ reminder = template.render_dynamic(date="2026-02-20", user_name="Alice")
 In serverless or multi-worker environments, different workers may not know about each other's sessions. The optional L2 cache solves this:
 
 ```python
-client = cache_guard.wrap(
+client = cacheguardian.wrap(
     anthropic.Anthropic(),
     l2_backend="redis://localhost:6379",
 )
@@ -395,7 +395,7 @@ client = cache_guard.wrap(
 - **Cross-worker prefix sharing** — Worker B knows that Worker A already warmed the cache for a given prefix
 - **Gemini cache coordination** — Prevents redundant `CachedContent` creation fees when multiple workers process the same content
 - **Rate limit coordination** — Shared request counting across workers
-- **Graceful degradation** — If Redis is unavailable, Cache Guard falls back to L1-only with zero errors
+- **Graceful degradation** — If Redis is unavailable, CacheGuardian falls back to L1-only with zero errors
 
 ---
 
@@ -403,10 +403,10 @@ client = cache_guard.wrap(
 
 Gemini's explicit caches incur storage fees of **$4.50 per million tokens per hour**. If your process crashes without cleaning up, those caches keep billing.
 
-Cache Guard solves this with a **disk-persisted cache registry**:
+CacheGuardian solves this with a **disk-persisted cache registry**:
 
 ```python
-from cache_guard.providers.gemini import GeminiProvider
+from cacheguardian.providers.gemini import GeminiProvider
 
 # On startup, clean up any zombie caches from previous crashes
 provider = GeminiProvider(config, gemini_client=client)
@@ -414,14 +414,14 @@ cleaned = provider.cleanup_stale_caches(max_age_hours=2.0)
 print(f"Cleaned {cleaned} orphaned caches")
 ```
 
-The registry is written to `~/.cache/cache_guard/gemini_registry.json` on every cache creation. On next startup, any caches not accessed within the threshold are automatically deleted.
+The registry is written to `~/.cache/cacheguardian/gemini_registry.json` on every cache creation. On next startup, any caches not accessed within the threshold are automatically deleted.
 
 ---
 
 ## Architecture
 
 ```
-cache_guard/
+cacheguardian/
 ├── __init__.py                  # Public API: wrap(), dry_run(), configure()
 ├── types.py                     # Core data types (9 dataclasses)
 ├── config.py                    # Configuration + pricing tables
@@ -457,11 +457,11 @@ cache_guard/
 
 ## Design Principles
 
-1. **Exact prefix matching only.** No semantic or embedding-based caching. Cache Guard guarantees 100% accuracy — it will never serve a "similar" cached result for a different question.
+1. **Exact prefix matching only.** No semantic or embedding-based caching. CacheGuardian guarantees 100% accuracy — it will never serve a "similar" cached result for a different question.
 
-2. **Never modify the response.** Cache Guard transforms the *request* (sorting tools, injecting cache_control) and *logs* after the response. The response object you receive is identical to what the raw SDK would return.
+2. **Never modify the response.** CacheGuardian transforms the *request* (sorting tools, injecting cache_control) and *logs* after the response. The response object you receive is identical to what the raw SDK would return.
 
-3. **Composition over inheritance.** SDK clients are wrapped, not subclassed. This makes Cache Guard resilient to SDK version changes.
+3. **Composition over inheritance.** SDK clients are wrapped, not subclassed. This makes CacheGuardian resilient to SDK version changes.
 
 4. **Optional everything.** Install only the provider SDKs you use. Redis is optional. Privacy mode is optional. Every feature degrades gracefully when its dependency is absent.
 
@@ -472,8 +472,8 @@ cache_guard/
 Contributions are welcome! Here's how to set up the development environment:
 
 ```bash
-git clone https://github.com/kclaka/Cache-Guard.git
-cd Cache-Guard
+git clone https://github.com/kclaka/cacheguardian.git
+cd cacheguardian
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -495,5 +495,5 @@ MIT
 ---
 
 <p align="center">
-  <strong>Cache Guard</strong> — because the best API call is the one you don't pay full price for.
+  <strong>CacheGuardian</strong> — because the best API call is the one you don't pay full price for.
 </p>

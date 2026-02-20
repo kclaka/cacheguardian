@@ -14,9 +14,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("cache_guard")
+logger = logging.getLogger("cacheguardian")
 
-_DEFAULT_REGISTRY_PATH = os.path.expanduser("~/.cache/cache_guard/gemini_registry.json")
+_DEFAULT_REGISTRY_PATH = os.path.expanduser("~/.cache/cacheguardian/gemini_registry.json")
 
 
 class CacheRegistry:

@@ -5,8 +5,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from cache_guard.config import CacheGuardConfig
-from cache_guard.types import CacheBreakWarning, CacheMetrics, Provider, SessionState
+from cacheguardian.config import CacheGuardConfig
+from cacheguardian.types import CacheBreakWarning, CacheMetrics, Provider, SessionState
 
 
 class CacheProvider(ABC):

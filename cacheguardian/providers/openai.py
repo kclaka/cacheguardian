@@ -6,11 +6,11 @@ import copy
 import hashlib
 from typing import Any
 
-from cache_guard.config import CacheGuardConfig
-from cache_guard.core.metrics import MetricsCollector
-from cache_guard.core.optimizer import reorder_static_first, sort_tools
-from cache_guard.providers.base import CacheProvider
-from cache_guard.types import CacheMetrics, Provider, SessionState
+from cacheguardian.config import CacheGuardConfig
+from cacheguardian.core.metrics import MetricsCollector
+from cacheguardian.core.optimizer import reorder_static_first, sort_tools
+from cacheguardian.providers.base import CacheProvider
+from cacheguardian.types import CacheMetrics, Provider, SessionState
 
 # OpenAI caching minimum threshold
 _MIN_CACHE_TOKENS = 1024

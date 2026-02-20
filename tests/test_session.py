@@ -1,8 +1,8 @@
 """Tests for session tracking."""
 
 import pytest
-from cache_guard.core.session import SessionTracker
-from cache_guard.types import Provider
+from cacheguardian.core.session import SessionTracker
+from cacheguardian.types import Provider
 
 
 class TestSessionTracker:

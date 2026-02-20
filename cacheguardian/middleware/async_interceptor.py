@@ -6,17 +6,17 @@ import asyncio
 import random
 from typing import Any
 
-from cache_guard.middleware.interceptor import (
+from cacheguardian.middleware.interceptor import (
     CacheGuardState,
     _GUARD_ATTR,
     _post_request,
     _pre_request_full,
 )
-from cache_guard.types import Provider
+from cacheguardian.types import Provider
 
 
 def wrap_async_client(client: Any, state: CacheGuardState) -> Any:
-    """Wrap an async SDK client with cache-guard middleware.
+    """Wrap an async SDK client with cacheguardian middleware.
 
     All diff/metrics operations run via asyncio.to_thread() to avoid
     blocking the event loop.

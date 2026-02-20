@@ -1,4 +1,4 @@
-"""Rich-based colored logging for cache-guard."""
+"""Rich-based colored logging for cacheguardian."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from typing import Optional
 from rich.console import Console
 from rich.text import Text
 
-from cache_guard.types import CacheBreakWarning, CacheMetrics, SessionState
+from cacheguardian.types import CacheBreakWarning, CacheMetrics, SessionState
 
 console = Console(stderr=True)
-logger = logging.getLogger("cache_guard")
+logger = logging.getLogger("cacheguardian")
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """Configure cache-guard logging."""
+    """Configure cacheguardian logging."""
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
     if not logger.handlers:
         handler = logging.StreamHandler()
@@ -26,7 +26,7 @@ def setup_logging(level: str = "INFO") -> None:
 def log_cache_hit(metrics: CacheMetrics, session: SessionState) -> None:
     """Log a cache hit with savings."""
     text = Text()
-    text.append("[cache-guard] ", style="bold cyan")
+    text.append("[cacheguardian] ", style="bold cyan")
     text.append("L1 HIT", style="bold green")
     text.append(f" | Cache hit {metrics.cache_hit_rate:.1%}", style="green")
     text.append(f" | Saved ${metrics.estimated_savings:.4f}", style="bold green")
@@ -37,7 +37,7 @@ def log_cache_hit(metrics: CacheMetrics, session: SessionState) -> None:
 def log_cache_miss(metrics: CacheMetrics, session: SessionState, reason: str = "") -> None:
     """Log a cache miss with cost impact."""
     text = Text()
-    text.append("[cache-guard] ", style="bold cyan")
+    text.append("[cacheguardian] ", style="bold cyan")
     text.append("L1 MISS", style="bold yellow")
     if reason:
         text.append(f" — {reason}", style="yellow")
@@ -49,7 +49,7 @@ def log_cache_miss(metrics: CacheMetrics, session: SessionState, reason: str = "
 def log_cache_break(warning: CacheBreakWarning) -> None:
     """Log a cache-breaking change with diff."""
     text = Text()
-    text.append("[cache-guard] ", style="bold cyan")
+    text.append("[cacheguardian] ", style="bold cyan")
     text.append("CACHE BREAK", style="bold red")
     text.append(f" — {warning.reason}", style="red")
     if warning.estimated_cost_impact > 0:
@@ -70,7 +70,7 @@ def log_cache_break(warning: CacheBreakWarning) -> None:
 def log_session_summary(session: SessionState) -> None:
     """Log end-of-session summary."""
     text = Text()
-    text.append("\n[cache-guard] ", style="bold cyan")
+    text.append("\n[cacheguardian] ", style="bold cyan")
     text.append("Session Summary", style="bold underline")
     console.print(text)
 
@@ -90,7 +90,7 @@ def log_session_summary(session: SessionState) -> None:
 def log_promotion(provider: str, token_count: int, ttl: str) -> None:
     """Log a cache promotion event."""
     text = Text()
-    text.append("[cache-guard] ", style="bold cyan")
+    text.append("[cacheguardian] ", style="bold cyan")
     text.append("PROMOTED", style="bold magenta")
     text.append(f" — {token_count:,} tokens → {provider} explicit cache (TTL: {ttl})")
     console.print(text)
@@ -99,7 +99,7 @@ def log_promotion(provider: str, token_count: int, ttl: str) -> None:
 def log_dry_run(would_hit: bool, savings: float, warnings: list[CacheBreakWarning]) -> None:
     """Log dry-run results."""
     text = Text()
-    text.append("[cache-guard] ", style="bold cyan")
+    text.append("[cacheguardian] ", style="bold cyan")
     text.append("DRY RUN", style="bold blue")
     if would_hit:
         text.append(" — would HIT cache", style="green")

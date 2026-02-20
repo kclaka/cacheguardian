@@ -7,20 +7,20 @@ import random
 import time
 from typing import Any, Optional
 
-from cache_guard.cache.l1 import L1Cache
-from cache_guard.cache.l2 import L2Cache
-from cache_guard.config import CacheGuardConfig
-from cache_guard.core.differ import PromptDiffer
-from cache_guard.core.logger import (
+from cacheguardian.cache.l1 import L1Cache
+from cacheguardian.cache.l2 import L2Cache
+from cacheguardian.config import CacheGuardConfig
+from cacheguardian.core.differ import PromptDiffer
+from cacheguardian.core.logger import (
     log_cache_break,
     log_cache_hit,
     log_cache_miss,
     log_session_summary,
     setup_logging,
 )
-from cache_guard.core.session import SessionTracker
-from cache_guard.providers.base import CacheProvider
-from cache_guard.types import (
+from cacheguardian.core.session import SessionTracker
+from cacheguardian.providers.base import CacheProvider
+from cacheguardian.types import (
     CacheBreakWarning,
     CacheMetrics,
     DryRunResult,
@@ -28,10 +28,10 @@ from cache_guard.types import (
     SessionState,
 )
 
-logger = logging.getLogger("cache_guard")
+logger = logging.getLogger("cacheguardian")
 
 # Store for wrapped client state
-_GUARD_ATTR = "_cache_guard_state"
+_GUARD_ATTR = "_cacheguardian_state"
 
 
 class CacheGuardState:
@@ -55,7 +55,7 @@ class CacheGuardState:
 
 
 def wrap_client(client: Any, **kwargs: Any) -> Any:
-    """Wrap an LLM SDK client with cache-guard middleware.
+    """Wrap an LLM SDK client with cacheguardian middleware.
 
     Auto-detects the provider from the client type and wraps the appropriate
     methods (messages.create for Anthropic, chat.completions.create for OpenAI,
@@ -82,7 +82,7 @@ def wrap_client(client: Any, **kwargs: Any) -> Any:
     )
 
     if is_async:
-        from cache_guard.middleware.async_interceptor import wrap_async_client
+        from cacheguardian.middleware.async_interceptor import wrap_async_client
         return wrap_async_client(client, state)
 
     return _wrap_sync_client(client, state)
@@ -92,7 +92,7 @@ def run_dry_run(client: Any, **request_kwargs: Any) -> DryRunResult:
     """Test if a request would hit the cache without making an API call."""
     state: CacheGuardState | None = getattr(client, _GUARD_ATTR, None)
     if state is None:
-        raise ValueError("Client is not wrapped with cache-guard. Use cache_guard.wrap(client) first.")
+        raise ValueError("Client is not wrapped with cacheguardian. Use cacheguardian.wrap(client) first.")
 
     parts = state.provider.extract_request_parts(request_kwargs)
     model = parts.get("model", "")
@@ -135,7 +135,7 @@ def run_dry_run(client: Any, **request_kwargs: Any) -> DryRunResult:
         estimated_tokens = l1_result.fingerprint.token_estimate
         estimated_savings = estimated_tokens * (pricing.base_input - pricing.cache_read) / 1_000_000
 
-    from cache_guard.core.logger import log_dry_run
+    from cacheguardian.core.logger import log_dry_run
     log_dry_run(l1_result.hit, estimated_savings, warnings)
 
     return DryRunResult(
@@ -334,7 +334,7 @@ def _post_request(
     # Check alert threshold
     if session.request_count > 3 and session.cache_hit_rate < state.config.min_cache_hit_rate:
         logger.warning(
-            "[cache-guard] ALERT: Session cache hit rate %.1f%% is below threshold %.1f%%",
+            "[cacheguardian] ALERT: Session cache hit rate %.1f%% is below threshold %.1f%%",
             session.cache_hit_rate * 100,
             state.config.min_cache_hit_rate * 100,
         )
@@ -345,13 +345,13 @@ def _detect_provider(client: Any, config: CacheGuardConfig) -> CacheProvider:
     client_type = type(client).__module__ + "." + type(client).__qualname__
 
     if "anthropic" in client_type.lower():
-        from cache_guard.providers.anthropic import AnthropicProvider
+        from cacheguardian.providers.anthropic import AnthropicProvider
         return AnthropicProvider(config)
     elif "openai" in client_type.lower():
-        from cache_guard.providers.openai import OpenAIProvider
+        from cacheguardian.providers.openai import OpenAIProvider
         return OpenAIProvider(config)
     elif "google" in client_type.lower() or "genai" in client_type.lower():
-        from cache_guard.providers.gemini import GeminiProvider
+        from cacheguardian.providers.gemini import GeminiProvider
         return GeminiProvider(config, gemini_client=client)
     else:
         raise ValueError(

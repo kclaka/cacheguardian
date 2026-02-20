@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any
 
-from cache_guard.types import DivergencePoint, Fingerprint
+from cacheguardian.types import DivergencePoint, Fingerprint
 
 
 def normalize_json(obj: Any) -> str:
