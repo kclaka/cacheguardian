@@ -73,9 +73,9 @@ class AnthropicProvider(CacheProvider):
                     system[-1] = last
             kwargs["system"] = system
 
-        # 3. Handle 20-block rule: add intermediate breakpoints
+        # 3. Conversation caching: breakpoints on message prefix
         if "messages" in kwargs:
-            kwargs["messages"] = self._ensure_intermediate_breakpoints(kwargs["messages"])
+            kwargs["messages"] = self._add_message_breakpoints(kwargs["messages"])
 
         return kwargs
 
@@ -108,38 +108,63 @@ class AnthropicProvider(CacheProvider):
                 return "1h"
             return "5m"
 
-    def _ensure_intermediate_breakpoints(
+    def _add_message_breakpoints(
         self, messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Add cache_control breakpoints every 15 blocks if total > 20.
+        """Add cache_control breakpoints to messages for conversation caching.
 
-        Anthropic's auto-caching searches backward at most 20 blocks from each
-        breakpoint. If you have more than 20 blocks without intermediate breakpoints,
-        changes early in the chain can invalidate everything.
+        Strategy:
+        1. Always add a breakpoint on the second-to-last message.  This caches
+           the entire conversation prefix (system + tools + all prior messages)
+           so only the newest user message is uncached on each turn.
+        2. For very long conversations (>20 content blocks), also add
+           intermediate breakpoints every 15 blocks.
+
+        Anthropic allows up to 4 breakpoints per request.
         """
         messages = [copy.copy(m) for m in messages]
 
-        # Count total content blocks
+        # Anthropic allows max 4 breakpoints per request.
+        # System + tools already use 2, leaving 2 for messages.
+        max_msg_breakpoints = 2
+        breakpoint_indices: list[int] = []
+
+        # 1. Conversation prefix breakpoint: second-to-last message
+        #    (the last assistant response before the new user message).
+        if len(messages) >= 2:
+            breakpoint_indices.append(len(messages) - 2)
+
+        # 2. Intermediate breakpoint for long conversations (>20 blocks)
         total_blocks = sum(
             len(m.get("content", [])) if isinstance(m.get("content"), list) else 1
             for m in messages
         )
+        if total_blocks > 20:
+            for i in range(14, len(messages) - 2, 15):
+                if len(breakpoint_indices) < max_msg_breakpoints:
+                    breakpoint_indices.append(i)
 
-        if total_blocks <= 20:
-            return messages
-
-        # Add breakpoints every 15 messages (leaving headroom within the 20-block window)
-        for i in range(14, len(messages), 15):
-            if i < len(messages):
-                msg = messages[i]
-                content = msg.get("content")
-                if isinstance(content, list) and content:
-                    # Add cache_control to last content block
-                    last_block = copy.copy(content[-1])
-                    if "cache_control" not in last_block:
-                        last_block["cache_control"] = {"type": "ephemeral"}
-                        content = content[:-1] + [last_block]
-                        msg = {**msg, "content": content}
-                        messages[i] = msg
+        for idx in breakpoint_indices:
+            self._inject_breakpoint(messages, idx)
 
         return messages
+
+    @staticmethod
+    def _inject_breakpoint(messages: list[dict[str, Any]], idx: int) -> None:
+        """Add cache_control to a message's last content block."""
+        if idx < 0 or idx >= len(messages):
+            return
+        msg = messages[idx]
+        content = msg.get("content")
+        if isinstance(content, list) and content:
+            last_block = copy.copy(content[-1])
+            if "cache_control" not in last_block:
+                last_block["cache_control"] = {"type": "ephemeral"}
+                content = content[:-1] + [last_block]
+                messages[idx] = {**msg, "content": content}
+        elif isinstance(content, str):
+            # Convert string content to a content block with cache_control
+            messages[idx] = {
+                **msg,
+                "content": [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}],
+            }

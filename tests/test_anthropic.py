@@ -134,8 +134,8 @@ class TestIntermediateBreakpoints:
         self.config = CacheGuardConfig(auto_fix=True)
         self.provider = AnthropicProvider(self.config)
 
-    def test_no_breakpoints_for_small_conversations(self):
-        """<= 20 blocks: no intermediate breakpoints needed."""
+    def test_conversation_prefix_breakpoint(self):
+        """Should add cache_control to second-to-last message (conversation prefix)."""
         messages = [
             {"role": "user", "content": f"message {i}"}
             for i in range(10)
@@ -143,9 +143,14 @@ class TestIntermediateBreakpoints:
         kwargs = {"model": "claude-sonnet-4", "messages": messages}
         session = _make_session()
         result = self.provider.intercept_request(kwargs, session)
-        # No cache_control added to messages
-        for msg in result["messages"]:
-            assert "cache_control" not in str(msg.get("content", ""))
+        # Second-to-last message (index 8) should have cache_control
+        second_last = result["messages"][8]
+        assert isinstance(second_last["content"], list)
+        assert "cache_control" in second_last["content"][-1]
+        # Last message should NOT have cache_control
+        last = result["messages"][9]
+        if isinstance(last.get("content"), list):
+            assert "cache_control" not in last["content"][-1]
 
     def test_breakpoints_for_long_conversations(self):
         """> 20 blocks: intermediate breakpoints should be added."""

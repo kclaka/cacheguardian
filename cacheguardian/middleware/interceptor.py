@@ -285,7 +285,8 @@ def _pre_request_full(state: CacheGuardState, kwargs: dict[str, Any]) -> tuple[d
     )
 
     # 4. Diff against previous request (both are transformed)
-    if session.last_request_kwargs and not l1_result.is_first_request:
+    #    Skip if L1 reports a hit (prefix extension) — no break to report.
+    if session.last_request_kwargs and not l1_result.is_first_request and not l1_result.hit:
         warnings = state.differ.diff(
             session.last_request_kwargs,
             kwargs,
