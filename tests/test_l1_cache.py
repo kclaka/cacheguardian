@@ -54,7 +54,13 @@ class TestL1Cache:
         assert r2.divergence is not None
         assert r2.divergence.segment_label == "system"
 
-    def test_message_appended_detected(self):
+    def test_message_appended_is_prefix_extension(self):
+        """Appending new messages is a prefix extension, not a cache break.
+
+        Prompt caching works on prefixes — when the existing prefix is
+        unchanged and new messages are simply appended, the API-level cache
+        still hits for the entire prefix portion.
+        """
         # First request
         r1 = self.l1.check(
             session_id="s1",
@@ -72,9 +78,28 @@ class TestL1Cache:
                 {"role": "assistant", "content": "hello"},
             ],
         )
+        assert r2.hit
+        assert r2.divergence is None
+        assert "prefix match" in r2.prefix_match_depth
+
+    def test_message_mutated_detected(self):
+        """Mutating an existing message IS a real cache break."""
+        r1 = self.l1.check(
+            session_id="s1",
+            system="Be helpful",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        self.l1.update("s1", r1.fingerprint)
+
+        # Mutate existing message (not append)
+        r2 = self.l1.check(
+            session_id="s1",
+            system="Be helpful",
+            messages=[{"role": "user", "content": "CHANGED"}],
+        )
         assert not r2.hit
         assert r2.divergence is not None
-        assert "message[1]" in r2.divergence.segment_label
+        assert "message[0]" in r2.divergence.segment_label
 
     def test_tool_change_detected(self):
         tools_v1 = [{"name": "search", "description": "v1"}]

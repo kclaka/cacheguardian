@@ -19,16 +19,46 @@ class PricingConfig:
 
 
 # Default pricing tables (as of Feb 2026)
+# Source: https://platform.claude.com/docs/en/about-claude/pricing
 ANTHROPIC_PRICING: dict[str, PricingConfig] = {
-    "claude-sonnet-4-20250514": PricingConfig(
-        base_input=3.00, cache_read=0.30, cache_write_5m=3.75,
-        cache_write_1h=6.00, output=15.00,
+    # Opus 4.5 / 4.6 — same pricing tier
+    "claude-opus-4-6": PricingConfig(
+        base_input=5.00, cache_read=0.50, cache_write_5m=6.25,
+        cache_write_1h=10.00, output=25.00,
+    ),
+    "claude-opus-4-5": PricingConfig(
+        base_input=5.00, cache_read=0.50, cache_write_5m=6.25,
+        cache_write_1h=10.00, output=25.00,
+    ),
+    # Opus 4 / 4.1 — same pricing tier
+    "claude-opus-4-1": PricingConfig(
+        base_input=15.00, cache_read=1.50, cache_write_5m=18.75,
+        cache_write_1h=30.00, output=75.00,
     ),
     "claude-opus-4-20250514": PricingConfig(
         base_input=15.00, cache_read=1.50, cache_write_5m=18.75,
         cache_write_1h=30.00, output=75.00,
     ),
-    "claude-haiku-4-20250514": PricingConfig(
+    # Sonnet 4 / 4.5 / 4.6 — same pricing tier
+    "claude-sonnet-4-6": PricingConfig(
+        base_input=3.00, cache_read=0.30, cache_write_5m=3.75,
+        cache_write_1h=6.00, output=15.00,
+    ),
+    "claude-sonnet-4-5": PricingConfig(
+        base_input=3.00, cache_read=0.30, cache_write_5m=3.75,
+        cache_write_1h=6.00, output=15.00,
+    ),
+    "claude-sonnet-4-20250514": PricingConfig(
+        base_input=3.00, cache_read=0.30, cache_write_5m=3.75,
+        cache_write_1h=6.00, output=15.00,
+    ),
+    # Haiku 4.5
+    "claude-haiku-4-5": PricingConfig(
+        base_input=1.00, cache_read=0.10, cache_write_5m=1.25,
+        cache_write_1h=2.00, output=5.00,
+    ),
+    # Haiku 3.5
+    "claude-haiku-3-5": PricingConfig(
         base_input=0.80, cache_read=0.08, cache_write_5m=1.00,
         cache_write_1h=1.60, output=4.00,
     ),

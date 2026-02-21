@@ -21,27 +21,48 @@ class TestAnthropicProvider:
         self.config = CacheGuardConfig(auto_fix=True)
         self.provider = AnthropicProvider(self.config)
 
-    def test_auto_inject_cache_control(self):
-        """Should add cache_control if missing."""
+    def test_system_cache_control_injected(self):
+        """Should add cache_control to the system prompt content block."""
         kwargs = {
             "model": "claude-sonnet-4",
+            "system": "You are helpful",
             "messages": [{"role": "user", "content": "hi"}],
         }
         session = _make_session()
         result = self.provider.intercept_request(kwargs, session)
-        assert "cache_control" in result
-        assert result["cache_control"]["type"] == "ephemeral"
+        # System should be converted to content blocks with cache_control
+        assert isinstance(result["system"], list)
+        assert result["system"][-1]["cache_control"] == {"type": "ephemeral"}
+        assert result["system"][-1]["text"] == "You are helpful"
 
-    def test_no_overwrite_existing_cache_control(self):
-        """Should not overwrite existing cache_control."""
+    def test_tools_cache_control_injected(self):
+        """Should add cache_control to the last tool definition."""
         kwargs = {
             "model": "claude-sonnet-4",
-            "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            "tools": [
+                {"name": "alpha", "input_schema": {}},
+                {"name": "beta", "input_schema": {}},
+            ],
             "messages": [],
         }
         session = _make_session()
         result = self.provider.intercept_request(kwargs, session)
-        assert result["cache_control"]["ttl"] == "1h"
+        # Last tool should have cache_control
+        assert "cache_control" in result["tools"][-1]
+        assert result["tools"][-1]["cache_control"]["type"] == "ephemeral"
+        # First tool should NOT have cache_control
+        assert "cache_control" not in result["tools"][0]
+
+    def test_no_overwrite_existing_cache_control(self):
+        """Should not overwrite existing cache_control on system blocks."""
+        kwargs = {
+            "model": "claude-sonnet-4",
+            "system": [{"type": "text", "text": "Be helpful", "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
+            "messages": [],
+        }
+        session = _make_session()
+        result = self.provider.intercept_request(kwargs, session)
+        assert result["system"][-1]["cache_control"]["ttl"] == "1h"
 
     def test_tools_sorted(self):
         """Tools should be sorted alphabetically by name."""

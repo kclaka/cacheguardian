@@ -44,24 +44,38 @@ class AnthropicProvider(CacheProvider):
         """Apply Anthropic-specific cache optimizations."""
         kwargs = copy.copy(kwargs)
 
-        # 1. Auto-inject top-level cache_control if missing
-        if self.config.auto_fix and "cache_control" not in kwargs:
-            ttl = self._select_ttl(session)
-            kwargs["cache_control"] = {"type": "ephemeral"}
+        if not self.config.auto_fix:
+            return kwargs
 
-        # 2. Sort tools deterministically
-        if self.config.auto_fix and "tools" in kwargs and kwargs["tools"]:
-            kwargs["tools"] = sort_tools(kwargs["tools"])
-            # Stabilize JSON keys within each tool
-            kwargs["tools"] = [stabilize_json_keys(t) for t in kwargs["tools"]]
+        # 1. Sort tools deterministically, stabilize JSON keys, inject cache_control
+        if "tools" in kwargs and kwargs["tools"]:
+            tools = sort_tools(kwargs["tools"])
+            tools = [stabilize_json_keys(t) for t in tools]
+            # Add cache_control to last tool so the entire tool block is cached
+            if tools:
+                last = dict(tools[-1])
+                if "cache_control" not in last:
+                    last["cache_control"] = {"type": "ephemeral"}
+                tools[-1] = last
+            kwargs["tools"] = tools
+
+        # 2. Convert system prompt to content blocks with cache_control
+        if "system" in kwargs and kwargs["system"] is not None:
+            system = kwargs["system"]
+            if isinstance(system, str):
+                system = [{"type": "text", "text": system}]
+            if isinstance(system, list):
+                system = [stabilize_json_keys(b) for b in system]
+                if system:
+                    last = dict(system[-1])
+                    if "cache_control" not in last:
+                        last["cache_control"] = {"type": "ephemeral"}
+                    system[-1] = last
+            kwargs["system"] = system
 
         # 3. Handle 20-block rule: add intermediate breakpoints
-        if self.config.auto_fix and "messages" in kwargs:
+        if "messages" in kwargs:
             kwargs["messages"] = self._ensure_intermediate_breakpoints(kwargs["messages"])
-
-        # 4. Stabilize system prompt if it's a list of content blocks
-        if self.config.auto_fix and "system" in kwargs and isinstance(kwargs["system"], list):
-            kwargs["system"] = [stabilize_json_keys(block) for block in kwargs["system"]]
 
         return kwargs
 
