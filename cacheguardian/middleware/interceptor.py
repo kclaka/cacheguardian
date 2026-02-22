@@ -229,9 +229,25 @@ def _run_pipeline(state: CacheGuardState, kwargs: dict[str, Any], original_fn: A
     # Post-request: metrics + logging
     _post_request(state, kwargs, response, session, l1_result)
 
-    # Privacy mode: add timing jitter
+    # Privacy mode: add timing jitter to mask cache-timing side channel
     if state.config.privacy_mode:
-        jitter_ms = random.randint(*state.config.privacy_jitter_ms)
+        if state.config.privacy_jitter_mode == "adaptive":
+            # Scale jitter proportional to expected TTFT delta.
+            # Larger responses have larger absolute TTFT differences,
+            # so jitter must scale to stay effective.
+            parts = state.provider.extract_request_parts(kwargs)
+            msgs = parts.get("messages") or []
+            # Rough token estimate for scaling
+            est_tokens = sum(
+                len(str(m.get("content", ""))) // 4 for m in msgs
+            ) if msgs else 500
+            # Base: 50-200ms, scale up by sqrt(tokens/1000)
+            scale = max(1.0, (est_tokens / 1000) ** 0.5)
+            lo = int(state.config.privacy_jitter_ms[0] * scale)
+            hi = int(state.config.privacy_jitter_ms[1] * scale)
+            jitter_ms = random.randint(lo, hi)
+        else:
+            jitter_ms = random.randint(*state.config.privacy_jitter_ms)
         time.sleep(jitter_ms / 1000)
 
     return response
@@ -345,9 +361,13 @@ def _post_request(
             token_count=metrics.total_input_tokens,
         )
 
-    # Log
+    # Log — suppress noisy MISS logs during cold-start warmup
     if metrics.cache_hit_rate > 0.5:
         log_cache_hit(metrics, session)
+    elif session.request_count <= state.config.quiet_early_turns:
+        logger.debug(
+            "[cacheguardian] Turn %d — cache warming up", session.request_count,
+        )
     else:
         reason = ""
         if l1_result and not l1_result.hit and not l1_result.is_first_request:

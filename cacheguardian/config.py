@@ -120,7 +120,10 @@ class CacheGuardConfig:
     """Add timing jitter to prevent cache-timing side-channel attacks."""
 
     privacy_jitter_ms: tuple[int, int] = (50, 200)
-    """Range of jitter in milliseconds (min, max)."""
+    """Range of jitter in milliseconds (min, max) for fixed jitter mode."""
+
+    privacy_jitter_mode: str = "fixed"
+    """Jitter mode: 'fixed' (constant range) or 'adaptive' (scales with response size)."""
 
     # OpenAI routing
     cache_key_fn: Optional[Callable[[Any], str]] = None
@@ -133,6 +136,15 @@ class CacheGuardConfig:
     # Pricing overrides
     pricing_overrides: dict[str, dict[str, PricingConfig]] = field(default_factory=dict)
     """Override default pricing: {'anthropic': {'model-name': PricingConfig(...)}}."""
+
+    # Logging
+    quiet_early_turns: int = 3
+    """Suppress MISS logging during the first N turns (cold-start warmup)."""
+
+    # Gemini
+    gemini_explicit_threshold: int = 32768
+    """Minimum estimated tokens before promoting to explicit Gemini cache.
+    Below this, implicit caching (free of storage fees) is preferred."""
 
     # Alerts
     min_cache_hit_rate: float = 0.7

@@ -61,9 +61,12 @@ class GeminiProvider(CacheProvider):
                 kwargs["config"] = config
 
         # 3. Evaluate promotion from implicit to explicit
+        #    Only promote above the explicit threshold (default 32K tokens).
+        #    Below this, implicit caching is free of storage fees and preferred.
         elif self.config.auto_fix and self._gemini_client and session.request_count >= 3:
             token_estimate = self._estimate_tokens(kwargs)
-            if token_estimate >= 1024:
+            implicit_threshold = self.config.gemini_explicit_threshold
+            if token_estimate >= implicit_threshold:
                 decision = self._promoter.evaluate_gemini_explicit(
                     session, token_estimate,
                 )

@@ -38,6 +38,9 @@ class Fingerprint:
     token_estimate: int = 0
     """Approximate token count for the fingerprinted content."""
 
+    segment_token_estimates: list[int] = field(default_factory=list)
+    """Per-segment token estimates for accurate divergence cost impact."""
+
 
 @dataclass
 class DivergencePoint:
