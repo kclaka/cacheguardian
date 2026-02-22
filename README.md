@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/version-0.1.0-green.svg" alt="Version 0.1.0">
-  <img src="https://img.shields.io/badge/tests-125%20passed-brightgreen.svg" alt="Tests 125 passed">
+  <img src="https://img.shields.io/badge/version-0.3.0-green.svg" alt="Version 0.3.0">
+  <img src="https://img.shields.io/badge/tests-244%20passed-brightgreen.svg" alt="Tests 244 passed">
   <img src="https://img.shields.io/badge/license-MIT-lightgrey.svg" alt="MIT License">
 </p>
 
@@ -26,13 +26,14 @@ Every major LLM provider offers prompt caching — cached tokens cost **10-90% l
 - System prompt mutations between requests
 - Model switches mid-session
 - Dynamic content placed before static content
+- Using expensive models when a cheaper one would cache the same prompt
 - And [dozens of other subtle mistakes](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching)
 
 The result? You pay **full price** for tokens the provider *already computed*, and you don't even know it's happening. The only signal you get is a number buried in the API response.
 
 ## The Solution
 
-CacheGuardian wraps your existing SDK client in **one line of code**. It detects cache breaks locally in **< 1 millisecond**, automatically fixes the most common mistakes, and logs exactly how much money you're saving — or wasting — on every single call.
+CacheGuardian wraps your existing SDK client in **one line of code**. It detects cache breaks locally in **< 1 millisecond**, automatically fixes the most common mistakes, recommends cheaper models when your prompt doesn't meet cache thresholds, and logs exactly how much money you're saving — or wasting — on every single call.
 
 ```python
 import cacheguardian
@@ -76,8 +77,11 @@ pip install cacheguardian openai
 # Google Gemini
 pip install cacheguardian google-genai
 
+# All providers
+pip install "cacheguardian[all]"
+
 # Optional: Redis for distributed caching (L2)
-pip install cacheguardian redis
+pip install "cacheguardian[redis]"
 ```
 
 **Requirements:** Python 3.10+
@@ -146,8 +150,8 @@ response = client.chat.completions.create(
 | Derives `prompt_cache_key` | Generates a stable routing key so your requests hit the same physical cache hardware |
 | Reorders content | Moves system messages before user messages for better prefix overlap |
 | Sorts tools | Same as Anthropic — deterministic ordering |
+| Bucket padding | Pads system content to the next 128-token cache boundary |
 | Smart retention | Sets `prompt_cache_retention="24h"` when your request intervals are > 10 min |
-| 1024-token threshold | Suppresses false-positive cache warnings for prompts under 1024 tokens |
 
 ### Google Gemini
 
@@ -159,8 +163,8 @@ client = cacheguardian.wrap(genai.Client())
 
 response = client.models.generate_content(
     model="gemini-2.5-flash",
-    contents="Summarize this document.",
-    config={"system_instruction": "You are an expert analyst."},
+    system_instruction="You are an expert analyst.",
+    contents=[{"role": "user", "parts": [{"text": "Summarize this document."}]}],
 )
 ```
 
@@ -168,7 +172,8 @@ response = client.models.generate_content(
 
 | Optimization | What it does |
 |---|---|
-| Implicit → Explicit promotion | Creates a `CachedContent` object when the cost-benefit math says it saves money |
+| Normalizes kwargs | Moves `system_instruction` and `tools` into `config` dict for SDK v1.x compatibility |
+| Implicit to Explicit promotion | Creates a `CachedContent` object when the cost-benefit math says it saves money |
 | TTL optimization | Calculates optimal TTL from your request frequency to minimize storage costs |
 | Zombie cache cleanup | Persists a cache registry to disk — cleans up orphaned caches even after crashes |
 | Storage cost tracking | Tracks Gemini's per-hour storage fees separately so you see real ROI |
@@ -192,6 +197,78 @@ response = await client.messages.create(
 ```
 
 Works with `AsyncAnthropic`, `AsyncOpenAI`, and Gemini's async methods.
+
+---
+
+## Model Recommendations
+
+CacheGuardian detects when your prompt is **below a model's cache threshold** and recommends a cheaper alternative that would actually cache the content.
+
+```python
+import cacheguardian
+
+# Example: 1,500 tokens on Opus (4,096-token cache minimum)
+# → Won't cache. Sonnet (1,024-token min) would cache and save ~60%.
+rec = cacheguardian.recommend(
+    provider="anthropic",
+    model="claude-opus-4-6",
+    token_count=1500,
+)
+
+if rec:
+    print(rec.recommended_model)           # "claude-sonnet-4-6"
+    print(f"{rec.savings_percentage:.0f}%") # "60%"
+    print(rec.capability_note)             # "claude-sonnet-4 is less capable than claude-opus-4"
+```
+
+### Automatic hints in the pipeline
+
+When `log_level` is `DEBUG` or `INFO`, CacheGuardian logs model hints automatically:
+
+```
+[cacheguardian] MODEL HINT — 1,500 tokens < claude-opus-4-6's cache min (4,096)
+  Consider: claude-sonnet-4-6 (cache min: 1,024 tokens, saves ~$0.0070/req, 94% reduction)
+  Note: claude-sonnet-4 (high-capability) is less capable than claude-opus-4 (frontier).
+```
+
+### In dry-run mode
+
+```python
+dr = cacheguardian.dry_run(
+    client,
+    model="claude-opus-4-6",
+    max_tokens=1024,
+    system="Your system prompt here...",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+
+if dr.model_recommendation:
+    print(dr.model_recommendation.recommended_model)
+    print(dr.model_recommendation.savings_percentage)
+```
+
+### With a wrapped client
+
+```python
+client = cacheguardian.wrap(anthropic.Anthropic())
+
+# Inherits config and pricing overrides from the wrapped client
+rec = cacheguardian.recommend(
+    client=client,
+    model="claude-opus-4-6",
+    token_count=1500,
+)
+```
+
+### Key behaviors
+
+- **Same-provider only** — never recommends cross-provider models (no Opus to GPT-4o suggestions)
+- **Capability warnings** — tiered severity based on how far down you're stepping:
+  - 1-tier drop (Opus to Sonnet): mild note
+  - 2+ tier drop (Opus to Haiku): stern warning about reduced reasoning capability
+- **Output cost awareness** — factors in output token costs, not just input savings
+- **Threshold: >10% savings** — won't recommend marginal switches
+- **Zero overhead in production** — skipped when `log_level` is `WARNING` or `ERROR`
 
 ---
 
@@ -242,6 +319,7 @@ When your next request comes in, it compares segment hashes sequentially. The mo
 - **Pre-emptive warnings** — Detect a 1-character typo in a 50,000-token system prompt *before* the request is sent and the bill is generated
 - **`dry_run` mode** — Test your prompt structure against the cache without spending a cent
 - **Actionable suggestions** — Not just "cache missed" but "your system prompt changed — use a system-reminder message instead"
+- **Model recommendations** — Detect when a cheaper model would cache content that your current model can't
 
 ---
 
@@ -265,10 +343,11 @@ result = cacheguardian.dry_run(
     messages=[{"role": "user", "content": "New question"}],
 )
 
-print(result.would_hit_cache)       # True / False
-print(result.prefix_match_depth)    # "75% — 3/4 segments match (diverged at message[1])"
-print(result.estimated_savings)     # 0.034
-print(result.warnings)              # [CacheBreakWarning(...)]
+print(result.would_hit_cache)        # True / False
+print(result.prefix_match_depth)     # "75% — 3/4 segments match (diverged at message[1])"
+print(result.estimated_savings)      # 0.034
+print(result.warnings)               # [CacheBreakWarning(...)]
+print(result.model_recommendation)   # ModelRecommendation or None
 ```
 
 ```
@@ -300,6 +379,9 @@ client = cacheguardian.wrap(
     # Alert when cache hit rate drops below this threshold
     min_cache_hit_rate=0.7,         # default: 0.7
 
+    # Model recommendations (suggest cheaper models when below cache threshold)
+    model_recommendations=True,     # default: True
+
     # OpenAI: custom function to derive prompt_cache_key
     cache_key_fn=lambda session: f"user_{session.session_id}",
 
@@ -309,6 +391,7 @@ client = cacheguardian.wrap(
     # Privacy: add timing jitter to prevent cache-timing side-channel attacks
     privacy_mode=False,             # default: False
     privacy_jitter_ms=(50, 200),    # jitter range in ms — default: (50, 200)
+    privacy_jitter_mode="fixed",    # "fixed" | "adaptive" — default: "fixed"
 )
 ```
 
@@ -422,9 +505,10 @@ The registry is written to `~/.cache/cacheguardian/gemini_registry.json` on ever
 
 ```
 cacheguardian/
-├── __init__.py                  # Public API: wrap(), dry_run(), configure()
-├── types.py                     # Core data types (9 dataclasses)
+├── __init__.py                  # Public API: wrap(), dry_run(), recommend()
+├── types.py                     # Core data types (10 dataclasses)
 ├── config.py                    # Configuration + pricing tables
+├── py.typed                     # PEP 561 typed package marker
 │
 ├── cache/
 │   ├── fingerprint.py           # Normalize → segment → rolling SHA-256 hash
@@ -432,6 +516,7 @@ cacheguardian/
 │   └── l2.py                    # Optional Redis: cross-worker coordination
 │
 ├── core/
+│   ├── advisor.py               # Model recommendation engine
 │   ├── session.py               # Session state tracking across API calls
 │   ├── optimizer.py             # Transforms: sort tools, stabilize JSON, templates
 │   ├── differ.py                # Segment-level diff engine with cost estimation
@@ -478,13 +563,16 @@ cd cacheguardian
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install -e ".[dev]"
+pip install -e ".[dev,all]"
 
-# Run the test suite
+# Run the unit tests
 pytest -v
+
+# Run live integration tests (requires API keys in .env)
+pytest tests/test_live.py -v -s
 ```
 
-**125 tests** cover all modules: fingerprinting, L1 cache, transforms, session tracking, cost calculations, promotion logic, and all three providers.
+**244 tests** cover all modules: fingerprinting, L1 cache, transforms, session tracking, cost calculations, promotion logic, model recommendations, and live end-to-end tests across all three providers.
 
 ---
 
