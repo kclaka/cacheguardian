@@ -44,7 +44,8 @@ class TestGeminiProvider:
         }
         session = _make_session()
         result = self.provider.intercept_request(kwargs, session)
-        assert result["tools"][0]["name"] == "a"
+        # After intercept, tools are moved into config dict (SDK v1.x format)
+        assert result["config"]["tools"][0]["name"] == "a"
 
     def test_reuse_existing_cache(self):
         """If session has a gemini_cache_name, it should be used."""
@@ -98,7 +99,8 @@ class TestGeminiProvider:
         }
         session = _make_session()
         result = provider.intercept_request(kwargs, session)
-        assert result["tools"][0]["name"] == "z"  # not sorted
+        # Tools moved into config dict but not sorted when auto_fix=False
+        assert result["config"]["tools"][0]["name"] == "z"  # not sorted
 
 
 class TestCacheRegistry:

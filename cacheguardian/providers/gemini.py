@@ -44,52 +44,70 @@ class GeminiProvider(CacheProvider):
         return Provider.GEMINI
 
     def intercept_request(self, kwargs: dict[str, Any], session: SessionState) -> dict[str, Any]:
-        """Apply Gemini-specific cache optimizations."""
+        """Apply Gemini-specific cache optimizations.
+
+        Normalizes kwargs so that system_instruction and tools are inside the
+        config dict (required by google-genai SDK v1.x where generate_content
+        only accepts model, contents, and config).
+        """
         kwargs = copy.copy(kwargs)
+
+        # Normalize: move top-level system_instruction/tools into config dict
+        config = self._get_config_dict(kwargs)
+
+        if "system_instruction" in kwargs:
+            config.setdefault("system_instruction", kwargs.pop("system_instruction"))
+        if "tools" in kwargs:
+            config.setdefault("tools", kwargs.pop("tools"))
 
         # 1. Sort tools if present (Gemini uses function declarations)
         if self.config.auto_fix:
-            tools = kwargs.get("tools")
+            tools = config.get("tools")
             if tools and isinstance(tools, list):
-                kwargs["tools"] = sort_tools(tools)
+                config["tools"] = sort_tools(tools)
 
         # 2. Check if we should use an existing explicit cache
         if session.gemini_cache_name:
-            config = kwargs.get("config", {})
-            if isinstance(config, dict):
-                config["cached_content"] = session.gemini_cache_name
-                kwargs["config"] = config
+            config["cached_content"] = session.gemini_cache_name
 
         # 3. Evaluate promotion from implicit to explicit
         #    Only promote above the explicit threshold (default 32K tokens).
         #    Below this, implicit caching is free of storage fees and preferred.
         elif self.config.auto_fix and self._gemini_client and session.request_count >= 3:
-            token_estimate = self._estimate_tokens(kwargs)
+            token_estimate = self._estimate_tokens(kwargs, config)
             implicit_threshold = self.config.gemini_explicit_threshold
             if token_estimate >= implicit_threshold:
                 decision = self._promoter.evaluate_gemini_explicit(
                     session, token_estimate,
                 )
                 if decision.should_promote:
-                    cache_name = self._create_explicit_cache(kwargs, session)
+                    cache_name = self._create_explicit_cache(kwargs, session, config)
                     if cache_name:
                         session.gemini_cache_name = cache_name
-                        config = kwargs.get("config", {})
-                        if isinstance(config, dict):
-                            config["cached_content"] = cache_name
-                            kwargs["config"] = config
+                        config["cached_content"] = cache_name
 
+        kwargs["config"] = config
         return kwargs
 
     def extract_metrics(self, response: Any, model: str) -> CacheMetrics:
         return self._metrics.extract_gemini(response, model)
 
     def extract_request_parts(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Extract parts from Gemini's request format."""
+        """Extract parts from Gemini's request format.
+
+        Handles both top-level kwargs and config-based format (SDK v1.x).
+        """
+        config = kwargs.get("config", {})
+        if isinstance(config, dict):
+            system = config.get("system_instruction") or kwargs.get("system_instruction")
+            tools = config.get("tools") or kwargs.get("tools")
+        else:
+            system = getattr(config, "system_instruction", None) or kwargs.get("system_instruction")
+            tools = getattr(config, "tools", None) or kwargs.get("tools")
         return {
             "model": kwargs.get("model", ""),
-            "system": kwargs.get("system_instruction"),
-            "tools": kwargs.get("tools"),
+            "system": system,
+            "tools": tools,
             "messages": kwargs.get("contents"),
         }
 
@@ -123,12 +141,33 @@ class GeminiProvider(CacheProvider):
 
         return cleaned
 
-    def _create_explicit_cache(self, kwargs: dict[str, Any], session: SessionState) -> str | None:
+    @staticmethod
+    def _get_config_dict(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Extract config as a mutable dict, converting from object if needed."""
+        config = kwargs.get("config", {})
+        if config is None:
+            return {}
+        if isinstance(config, dict):
+            return dict(config)
+        # Convert config object to dict (e.g., GenerateContentConfig)
+        result = {}
+        for field_name in getattr(type(config), "__dataclass_fields__", {}):
+            val = getattr(config, field_name, None)
+            if val is not None:
+                result[field_name] = val
+        return result
+
+    def _create_explicit_cache(
+        self, kwargs: dict[str, Any], session: SessionState,
+        config: dict[str, Any] | None = None,
+    ) -> str | None:
         """Create an explicit CachedContent on Gemini."""
         try:
             from google.genai import types
 
-            system_instruction = kwargs.get("system_instruction", "")
+            if config is None:
+                config = self._get_config_dict(kwargs)
+            system_instruction = config.get("system_instruction") or kwargs.get("system_instruction", "")
             contents = kwargs.get("contents", [])
 
             avg_interval = session.average_request_interval_seconds()
@@ -170,13 +209,21 @@ class GeminiProvider(CacheProvider):
         # Floor at 5 minutes
         return max(300, min(min_ttl, max_ttl))
 
-    def _estimate_tokens(self, kwargs: dict[str, Any]) -> int:
+    def _estimate_tokens(
+        self, kwargs: dict[str, Any], config: dict[str, Any] | None = None,
+    ) -> int:
         """Rough token estimate (4 chars per token heuristic)."""
+        if config is None:
+            config = self._get_config_dict(kwargs)
         total_chars = 0
-        for key in ("system_instruction", "contents"):
-            val = kwargs.get(key)
-            if isinstance(val, str):
-                total_chars += len(val)
-            elif isinstance(val, list):
-                total_chars += len(str(val))
+        # Check system_instruction in config or top-level
+        system = config.get("system_instruction") or kwargs.get("system_instruction")
+        if isinstance(system, str):
+            total_chars += len(system)
+        # Check contents
+        contents = kwargs.get("contents")
+        if isinstance(contents, str):
+            total_chars += len(contents)
+        elif isinstance(contents, list):
+            total_chars += len(str(contents))
         return total_chars // 4

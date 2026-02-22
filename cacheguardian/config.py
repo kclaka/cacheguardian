@@ -146,6 +146,11 @@ class CacheGuardConfig:
     """Minimum estimated tokens before promoting to explicit Gemini cache.
     Below this, implicit caching (free of storage fees) is preferred."""
 
+    # Model recommendations
+    model_recommendations: bool = True
+    """Suggest cheaper models when prompt is below current model's cache threshold.
+    Only evaluates when log_level is DEBUG or INFO (skipped in production ERROR/WARNING mode)."""
+
     # Alerts
     min_cache_hit_rate: float = 0.7
     """Alert when session cache hit rate drops below this threshold."""
