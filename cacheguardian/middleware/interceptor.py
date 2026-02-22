@@ -15,6 +15,7 @@ from cacheguardian.core.logger import (
     log_cache_break,
     log_cache_hit,
     log_cache_miss,
+    log_model_recommendation,
     log_session_summary,
     setup_logging,
 )
@@ -151,6 +152,23 @@ def run_dry_run(client: Any, **request_kwargs: Any) -> DryRunResult:
     from cacheguardian.core.logger import log_dry_run
     log_dry_run(l1_result.hit, estimated_savings, warnings)
 
+    # Model recommendation (always evaluate in dry_run — explicit developer action)
+    model_rec = None
+    if state.config.model_recommendations:
+        from cacheguardian.core.advisor import ModelAdvisor
+
+        advisor = ModelAdvisor(state.config)
+        provider_name = state.provider.get_provider().value
+        max_tokens = request_kwargs.get("max_tokens")
+        model_rec = advisor.evaluate(
+            provider=provider_name,
+            model=model,
+            token_count=l1_result.fingerprint.token_estimate,
+            max_tokens=max_tokens,
+        )
+        if model_rec is not None:
+            log_model_recommendation(model_rec)
+
     return DryRunResult(
         would_hit_cache=l1_result.hit,
         estimated_cached_tokens=l1_result.fingerprint.token_estimate if l1_result.hit else 0,
@@ -159,6 +177,7 @@ def run_dry_run(client: Any, **request_kwargs: Any) -> DryRunResult:
         prefix_match_depth=l1_result.prefix_match_depth,
         warnings=warnings,
         fingerprint=l1_result.fingerprint,
+        model_recommendation=model_rec,
     )
 
 
@@ -316,6 +335,12 @@ def _pre_request_full(state: CacheGuardState, kwargs: dict[str, Any]) -> tuple[d
         if l1_warning and not warnings:
             log_cache_break(l1_warning)
 
+    # 5. Model recommendation (gated on log_level and config flag)
+    if (state.config.model_recommendations
+            and state.config.log_level.upper() in ("DEBUG", "INFO")):
+        max_tokens = kwargs.get("max_tokens")
+        _check_model_recommendation(state, model, transformed_parts, max_tokens)
+
     return kwargs, session, l1_result
 
 
@@ -381,6 +406,46 @@ def _post_request(
             session.cache_hit_rate * 100,
             state.config.min_cache_hit_rate * 100,
         )
+
+
+def _check_model_recommendation(
+    state: CacheGuardState,
+    model: str,
+    transformed_parts: dict[str, Any],
+    max_tokens: int | None = None,
+) -> None:
+    """Check if a cheaper model would provide better cache economics."""
+    from cacheguardian.core.advisor import ModelAdvisor
+
+    advisor = ModelAdvisor(state.config)
+    provider_name = state.provider.get_provider().value
+
+    # Use the L1 fingerprint's token estimate
+    messages = transformed_parts.get("messages") or []
+    system = transformed_parts.get("system")
+    tools = transformed_parts.get("tools")
+
+    # Rough token estimate from content
+    token_estimate = 0
+    if system:
+        token_estimate += len(str(system)) // 4
+    if tools:
+        token_estimate += len(str(tools)) // 4
+    for msg in messages:
+        if isinstance(msg, dict):
+            token_estimate += len(str(msg.get("content", ""))) // 4
+        else:
+            # Handle SDK objects (e.g., genai_types.Content)
+            token_estimate += len(str(msg)) // 4
+
+    rec = advisor.evaluate(
+        provider=provider_name,
+        model=model,
+        token_count=token_estimate,
+        max_tokens=max_tokens,
+    )
+    if rec is not None:
+        log_model_recommendation(rec)
 
 
 def _detect_provider(client: Any, config: CacheGuardConfig) -> CacheProvider:

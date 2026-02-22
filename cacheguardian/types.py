@@ -183,6 +183,28 @@ class PromotionDecision:
 
 
 @dataclass
+class ModelRecommendation:
+    """Recommendation to switch models for better cache economics."""
+
+    recommended_model: str
+    current_model: str
+    reason: str
+    current_min_tokens: int = 0
+    recommended_min_tokens: int = 0
+    estimated_token_count: int = 0
+    current_input_cost_per_mtok: float = 0.0
+    recommended_cache_read_cost_per_mtok: float = 0.0
+    recommended_input_cost_per_mtok: float = 0.0
+    current_cost_per_request: float = 0.0
+    recommended_cost_per_request: float = 0.0
+    estimated_savings_per_request: float = 0.0
+    savings_percentage: float = 0.0
+    current_output_cost_per_mtok: float = 0.0
+    recommended_output_cost_per_mtok: float = 0.0
+    capability_note: str = ""
+
+
+@dataclass
 class DryRunResult:
     """Result of a dry-run cache check (no API call)."""
 
@@ -193,3 +215,4 @@ class DryRunResult:
     prefix_match_depth: str = ""
     warnings: list[CacheBreakWarning] = field(default_factory=list)
     fingerprint: Optional[Fingerprint] = None
+    model_recommendation: Optional[ModelRecommendation] = None

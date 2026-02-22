@@ -8,7 +8,7 @@ from typing import Optional
 from rich.console import Console
 from rich.text import Text
 
-from cacheguardian.types import CacheBreakWarning, CacheMetrics, SessionState
+from cacheguardian.types import CacheBreakWarning, CacheMetrics, ModelRecommendation, SessionState
 
 console = Console(stderr=True)
 logger = logging.getLogger("cacheguardian")
@@ -110,3 +110,36 @@ def log_dry_run(would_hit: bool, savings: float, warnings: list[CacheBreakWarnin
 
     for w in warnings:
         console.print(f"  Warning: {w.reason}", style="yellow")
+
+
+def log_model_recommendation(rec: ModelRecommendation) -> None:
+    """Log a model recommendation with tiered severity."""
+    text = Text()
+    text.append("[cacheguardian] ", style="bold cyan")
+    text.append("MODEL HINT", style="bold magenta")
+    text.append(
+        f" \u2014 {rec.estimated_token_count:,} tokens < "
+        f"{rec.current_model}'s cache min ({rec.current_min_tokens:,})",
+        style="magenta",
+    )
+    console.print(text)
+
+    detail = Text()
+    detail.append(
+        f"  Consider: {rec.recommended_model} "
+        f"(cache min: {rec.recommended_min_tokens:,} tokens, "
+        f"saves ~${rec.estimated_savings_per_request:.4f}/req, "
+        f"{rec.savings_percentage:.0f}% reduction)",
+        style="bold",
+    )
+    console.print(detail)
+
+    if rec.capability_note:
+        if "significantly reduced" in rec.capability_note:
+            note = Text()
+            note.append(f"  WARNING: {rec.capability_note}", style="bold red")
+            console.print(note)
+        else:
+            note = Text()
+            note.append(f"  Note: {rec.capability_note}", style="yellow")
+            console.print(note)
