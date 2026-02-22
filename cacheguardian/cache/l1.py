@@ -66,7 +66,26 @@ class L1Cache:
                 prefix_match_depth="100% — identical to previous request",
             )
 
-        # Divergence detected — find where
+        # Check for prefix extension: all previous segments match, new ones
+        # appended.  This is the normal case in multi-turn conversations —
+        # the existing prefix is stable and new messages are appended.  The
+        # API-level cache will hit for the entire prefix portion.
+        if len(current_fp.segment_hashes) > len(prev_fp.segment_hashes):
+            prefix_matches = all(
+                current_fp.segment_hashes[i] == prev_fp.segment_hashes[i]
+                for i in range(len(prev_fp.segment_hashes))
+            )
+            if prefix_matches:
+                new_count = len(current_fp.segment_hashes) - len(prev_fp.segment_hashes)
+                return L1CheckResult(
+                    hit=True,
+                    is_first_request=False,
+                    fingerprint=current_fp,
+                    divergence=None,
+                    prefix_match_depth=f"100% prefix match — {new_count} new message(s) appended",
+                )
+
+        # Real divergence detected — find where
         divergence = find_divergence(prev_fp, current_fp)
         matching, total = compute_prefix_match_depth(prev_fp, current_fp)
 

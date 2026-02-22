@@ -100,19 +100,25 @@ class PromptDiffer:
         """Estimate the cost impact of a cache miss.
 
         Tokens after the divergence point will be charged at base rate instead
-        of cached rate.
+        of cached rate.  Uses per-segment token estimates when available for
+        accurate cost impact; falls back to uniform distribution otherwise.
         """
         if divergence is None:
             return 0.0
 
-        # Estimate: all tokens from divergence point onward are uncached
-        # This is an approximation since we don't have exact per-segment token counts
         total_segments = len(fingerprint.segment_hashes)
         if total_segments == 0:
             return 0.0
 
-        uncached_fraction = (total_segments - divergence.segment_index) / total_segments
-        uncached_tokens = fingerprint.token_estimate * uncached_fraction
+        idx = divergence.segment_index
+
+        # Use per-segment estimates when available
+        if fingerprint.segment_token_estimates and len(fingerprint.segment_token_estimates) == total_segments:
+            uncached_tokens = sum(fingerprint.segment_token_estimates[idx:])
+        else:
+            # Fallback: uniform distribution
+            uncached_fraction = (total_segments - idx) / total_segments
+            uncached_tokens = fingerprint.token_estimate * uncached_fraction
 
         extra_cost = uncached_tokens * (base_rate_per_mtok - cached_rate_per_mtok) / 1_000_000
         return max(0.0, extra_cost)

@@ -9,20 +9,35 @@ from typing import Any
 
 from cacheguardian.types import DivergencePoint, Fingerprint
 
+# Keys that carry caching metadata but not semantic content.
+# Stripping these from hashes prevents false MISS reports when
+# cache_control breakpoints shift position between turns.
+_METADATA_KEYS: frozenset[str] = frozenset({"cache_control"})
 
-def normalize_json(obj: Any) -> str:
+
+def normalize_json(
+    obj: Any,
+    *,
+    strip_keys: frozenset[str] = _METADATA_KEYS,
+) -> str:
     """Recursively sort JSON keys and produce a stable string representation.
 
     This eliminates non-deterministic ordering from dicts, which is the #1
     cause of silent cache misses in languages/runtimes with unstable dict ordering.
+
+    Keys listed in *strip_keys* (default: ``{"cache_control"}``) are excluded
+    from the output so that caching metadata injected by the provider layer
+    does not change segment hashes.
     """
     if isinstance(obj, dict):
         sorted_items = sorted(
-            (k, normalize_json(v)) for k, v in obj.items()
+            (k, normalize_json(v, strip_keys=strip_keys))
+            for k, v in obj.items()
+            if k not in strip_keys
         )
         return "{" + ",".join(f'"{k}":{v}' for k, v in sorted_items) + "}"
     elif isinstance(obj, (list, tuple)):
-        return "[" + ",".join(normalize_json(item) for item in obj) + "]"
+        return "[" + ",".join(normalize_json(item, strip_keys=strip_keys) for item in obj) + "]"
     elif isinstance(obj, str):
         return json.dumps(obj)
     elif isinstance(obj, bool):
@@ -75,6 +90,41 @@ def extract_segments(
     return segments
 
 
+def _estimate_segment_tokens(content: Any) -> int:
+    """Estimate token count for a single segment with image-safe handling.
+
+    - Strings: ``len // 4``
+    - Dicts/lists with ``type: "image"`` blocks: 1568 fixed tokens per image
+    - Other dicts/lists: ``len(json.dumps(...)) // 4``
+    """
+    if isinstance(content, str):
+        return len(content) // 4
+    if isinstance(content, dict):
+        if content.get("type") == "image":
+            return 1568
+        # Message dict — inspect content field
+        inner = content.get("content", "")
+        if isinstance(inner, str):
+            return len(inner) // 4
+        if isinstance(inner, list):
+            total = 0
+            for block in inner:
+                if isinstance(block, dict):
+                    if block.get("type") == "image":
+                        total += 1568
+                    elif block.get("type") == "text":
+                        total += len(block.get("text", "")) // 4
+                    else:
+                        total += len(json.dumps(block)) // 4
+                elif isinstance(block, str):
+                    total += len(block) // 4
+            return total
+        return len(json.dumps(content)) // 4
+    if isinstance(content, list):
+        return len(json.dumps(content)) // 4
+    return len(str(content)) // 4
+
+
 def compute_fingerprint(
     system: Any = None,
     tools: list[dict[str, Any]] | None = None,
@@ -85,24 +135,33 @@ def compute_fingerprint(
 
     Hashes each segment independently (system, tools, each message) so that
     divergence detection can identify the exact segment that changed.
+    Also computes per-segment token estimates for accurate cost calculations.
     """
     segments = extract_segments(system=system, tools=tools, messages=messages)
 
     segment_hashes = []
     segment_labels = []
+    segment_token_estimates = []
     for label, content in segments:
         segment_hashes.append(hash_segment(content))
         segment_labels.append(label)
+        segment_token_estimates.append(_estimate_segment_tokens(content))
 
     # Combined fingerprint: hash of all segment hashes concatenated
     combined_input = ":".join(segment_hashes)
     combined = hashlib.sha256(combined_input.encode("utf-8")).hexdigest()[:16]
+
+    # Use computed total if caller didn't provide one
+    computed_total = sum(segment_token_estimates)
+    if token_estimate == 0:
+        token_estimate = computed_total
 
     return Fingerprint(
         combined=combined,
         segment_hashes=segment_hashes,
         segment_labels=segment_labels,
         token_estimate=token_estimate,
+        segment_token_estimates=segment_token_estimates,
     )
 
 

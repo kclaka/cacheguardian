@@ -21,27 +21,48 @@ class TestAnthropicProvider:
         self.config = CacheGuardConfig(auto_fix=True)
         self.provider = AnthropicProvider(self.config)
 
-    def test_auto_inject_cache_control(self):
-        """Should add cache_control if missing."""
+    def test_system_cache_control_injected(self):
+        """Should add cache_control to the system prompt content block."""
         kwargs = {
             "model": "claude-sonnet-4",
+            "system": "You are helpful",
             "messages": [{"role": "user", "content": "hi"}],
         }
         session = _make_session()
         result = self.provider.intercept_request(kwargs, session)
-        assert "cache_control" in result
-        assert result["cache_control"]["type"] == "ephemeral"
+        # System should be converted to content blocks with cache_control
+        assert isinstance(result["system"], list)
+        assert result["system"][-1]["cache_control"] == {"type": "ephemeral"}
+        assert result["system"][-1]["text"] == "You are helpful"
 
-    def test_no_overwrite_existing_cache_control(self):
-        """Should not overwrite existing cache_control."""
+    def test_tools_cache_control_injected(self):
+        """Should add cache_control to the last tool definition."""
         kwargs = {
             "model": "claude-sonnet-4",
-            "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            "tools": [
+                {"name": "alpha", "input_schema": {}},
+                {"name": "beta", "input_schema": {}},
+            ],
             "messages": [],
         }
         session = _make_session()
         result = self.provider.intercept_request(kwargs, session)
-        assert result["cache_control"]["ttl"] == "1h"
+        # Last tool should have cache_control
+        assert "cache_control" in result["tools"][-1]
+        assert result["tools"][-1]["cache_control"]["type"] == "ephemeral"
+        # First tool should NOT have cache_control
+        assert "cache_control" not in result["tools"][0]
+
+    def test_no_overwrite_existing_cache_control(self):
+        """Should not overwrite existing cache_control on system blocks."""
+        kwargs = {
+            "model": "claude-sonnet-4",
+            "system": [{"type": "text", "text": "Be helpful", "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
+            "messages": [],
+        }
+        session = _make_session()
+        result = self.provider.intercept_request(kwargs, session)
+        assert result["system"][-1]["cache_control"]["ttl"] == "1h"
 
     def test_tools_sorted(self):
         """Tools should be sorted alphabetically by name."""
@@ -113,29 +134,40 @@ class TestIntermediateBreakpoints:
         self.config = CacheGuardConfig(auto_fix=True)
         self.provider = AnthropicProvider(self.config)
 
-    def test_no_breakpoints_for_small_conversations(self):
-        """<= 20 blocks: no intermediate breakpoints needed."""
+    def test_conversation_prefix_breakpoint(self):
+        """Should add cache_control breakpoint in the conversation prefix."""
+        # Messages must exceed 1024 tokens (min threshold for Sonnet)
         messages = [
-            {"role": "user", "content": f"message {i}"}
-            for i in range(10)
+            {"role": "user", "content": "x" * 3000},
+            {"role": "assistant", "content": "y" * 3000},
+            {"role": "user", "content": "latest question"},
         ]
         kwargs = {"model": "claude-sonnet-4", "messages": messages}
         session = _make_session()
         result = self.provider.intercept_request(kwargs, session)
-        # No cache_control added to messages
-        for msg in result["messages"]:
-            assert "cache_control" not in str(msg.get("content", ""))
+        # A breakpoint should exist somewhere in the prefix (not last message)
+        has_prefix_breakpoint = False
+        for msg in result["messages"][:-1]:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and "cache_control" in block:
+                        has_prefix_breakpoint = True
+            elif isinstance(content, str) and "cache_control" not in msg:
+                pass
+        assert has_prefix_breakpoint
 
     def test_breakpoints_for_long_conversations(self):
         """> 20 blocks: intermediate breakpoints should be added."""
+        # Each message needs enough content to exceed the 1024 token threshold
         messages = [
-            {"role": "user", "content": [{"type": "text", "text": f"message {i}"}]}
+            {"role": "user", "content": [{"type": "text", "text": "x" * 500}]}
             for i in range(30)
         ]
         kwargs = {"model": "claude-sonnet-4", "messages": messages}
         session = _make_session()
         result = self.provider.intercept_request(kwargs, session)
-        # Should have at least one intermediate breakpoint
+        # Should have at least one breakpoint
         has_breakpoint = False
         for msg in result["messages"]:
             content = msg.get("content", [])

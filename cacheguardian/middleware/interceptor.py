@@ -89,27 +89,40 @@ def wrap_client(client: Any, **kwargs: Any) -> Any:
 
 
 def run_dry_run(client: Any, **request_kwargs: Any) -> DryRunResult:
-    """Test if a request would hit the cache without making an API call."""
+    """Test if a request would hit the cache without making an API call.
+
+    Applies the same transforms as the real pipeline (tool sorting, JSON
+    stabilization, cache_control injection) before fingerprinting, so the
+    prediction matches what would actually happen at the API level.
+    """
     state: CacheGuardState | None = getattr(client, _GUARD_ATTR, None)
     if state is None:
         raise ValueError("Client is not wrapped with cacheguardian. Use cacheguardian.wrap(client) first.")
 
-    parts = state.provider.extract_request_parts(request_kwargs)
-    model = parts.get("model", "")
+    # Get session using RAW parts (same as real pipeline)
+    raw_parts = state.provider.extract_request_parts(request_kwargs)
+    model = raw_parts.get("model", "")
 
     session = state.sessions.get_or_create(
         provider=state.provider.get_provider(),
         model=model,
-        system=parts.get("system"),
-        tools=parts.get("tools"),
+        system=raw_parts.get("system"),
+        tools=raw_parts.get("tools"),
     )
 
-    # L1 check
+    # Apply the same transforms as the real pipeline
+    import copy
+    transformed_kwargs = state.provider.intercept_request(
+        copy.copy(request_kwargs), session,
+    )
+    transformed_parts = state.provider.extract_request_parts(transformed_kwargs)
+
+    # L1 check on transformed data
     l1_result = state.l1.check(
         session_id=session.session_id,
-        system=parts.get("system"),
-        tools=parts.get("tools"),
-        messages=parts.get("messages"),
+        system=transformed_parts.get("system"),
+        tools=transformed_parts.get("tools"),
+        messages=transformed_parts.get("messages"),
     )
 
     # Collect warnings
@@ -121,7 +134,7 @@ def run_dry_run(client: Any, **request_kwargs: Any) -> DryRunResult:
 
     if session.last_request_kwargs:
         diff_warnings = state.differ.diff(
-            session.last_request_kwargs, request_kwargs,
+            session.last_request_kwargs, transformed_kwargs,
             prev_fingerprint=state.l1.get_fingerprint(session.session_id),
         )
         warnings.extend(diff_warnings)
@@ -216,9 +229,25 @@ def _run_pipeline(state: CacheGuardState, kwargs: dict[str, Any], original_fn: A
     # Post-request: metrics + logging
     _post_request(state, kwargs, response, session, l1_result)
 
-    # Privacy mode: add timing jitter
+    # Privacy mode: add timing jitter to mask cache-timing side channel
     if state.config.privacy_mode:
-        jitter_ms = random.randint(*state.config.privacy_jitter_ms)
+        if state.config.privacy_jitter_mode == "adaptive":
+            # Scale jitter proportional to expected TTFT delta.
+            # Larger responses have larger absolute TTFT differences,
+            # so jitter must scale to stay effective.
+            parts = state.provider.extract_request_parts(kwargs)
+            msgs = parts.get("messages") or []
+            # Rough token estimate for scaling
+            est_tokens = sum(
+                len(str(m.get("content", ""))) // 4 for m in msgs
+            ) if msgs else 500
+            # Base: 50-200ms, scale up by sqrt(tokens/1000)
+            scale = max(1.0, (est_tokens / 1000) ** 0.5)
+            lo = int(state.config.privacy_jitter_ms[0] * scale)
+            hi = int(state.config.privacy_jitter_ms[1] * scale)
+            jitter_ms = random.randint(lo, hi)
+        else:
+            jitter_ms = random.randint(*state.config.privacy_jitter_ms)
         time.sleep(jitter_ms / 1000)
 
     return response
@@ -240,27 +269,40 @@ def _pre_request(state: CacheGuardState, kwargs: dict[str, Any]) -> dict[str, An
 
 
 def _pre_request_full(state: CacheGuardState, kwargs: dict[str, Any]) -> tuple[dict, SessionState, Any]:
-    """Full pre-request: L1 check + diff + transforms."""
-    parts = state.provider.extract_request_parts(kwargs)
-    model = parts.get("model", "")
+    """Full pre-request: transforms + L1 check + diff.
+
+    Transforms are applied BEFORE the L1 check so that L1 fingerprints the
+    same data the API will see (sorted tools, stabilized JSON, cache_control
+    on content blocks).  This prevents false MISS reports caused by
+    cosmetic differences (e.g. shuffled tool ordering) that the transforms
+    would have fixed.
+    """
+    # 1. Get session using RAW parts (stable session ID derivation)
+    raw_parts = state.provider.extract_request_parts(kwargs)
+    model = raw_parts.get("model", "")
 
     session = state.sessions.get_or_create(
         provider=state.provider.get_provider(),
         model=model,
-        system=parts.get("system"),
-        tools=parts.get("tools"),
+        system=raw_parts.get("system"),
+        tools=raw_parts.get("tools"),
     )
 
-    # L1 cache check
+    # 2. Apply provider-specific transforms FIRST
+    kwargs = state.provider.intercept_request(kwargs, session)
+
+    # 3. L1 cache check on TRANSFORMED data (what the API will see)
+    transformed_parts = state.provider.extract_request_parts(kwargs)
     l1_result = state.l1.check(
         session_id=session.session_id,
-        system=parts.get("system"),
-        tools=parts.get("tools"),
-        messages=parts.get("messages"),
+        system=transformed_parts.get("system"),
+        tools=transformed_parts.get("tools"),
+        messages=transformed_parts.get("messages"),
     )
 
-    # Diff against previous request
-    if session.last_request_kwargs and not l1_result.is_first_request:
+    # 4. Diff against previous request (both are transformed)
+    #    Skip if L1 reports a hit (prefix extension) — no break to report.
+    if session.last_request_kwargs and not l1_result.is_first_request and not l1_result.hit:
         warnings = state.differ.diff(
             session.last_request_kwargs,
             kwargs,
@@ -273,9 +315,6 @@ def _pre_request_full(state: CacheGuardState, kwargs: dict[str, Any]) -> tuple[d
         l1_warning = l1_result.to_warning()
         if l1_warning and not warnings:
             log_cache_break(l1_warning)
-
-    # Apply provider-specific transforms
-    kwargs = state.provider.intercept_request(kwargs, session)
 
     return kwargs, session, l1_result
 
@@ -322,9 +361,13 @@ def _post_request(
             token_count=metrics.total_input_tokens,
         )
 
-    # Log
+    # Log — suppress noisy MISS logs during cold-start warmup
     if metrics.cache_hit_rate > 0.5:
         log_cache_hit(metrics, session)
+    elif session.request_count <= state.config.quiet_early_turns:
+        logger.debug(
+            "[cacheguardian] Turn %d — cache warming up", session.request_count,
+        )
     else:
         reason = ""
         if l1_result and not l1_result.hit and not l1_result.is_first_request:

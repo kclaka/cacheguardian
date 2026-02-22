@@ -88,6 +88,55 @@ class SystemPromptTemplate:
         return f"Updated context: {', '.join(parts)}" if parts else ""
 
 
+def pad_to_cache_bucket(
+    system_content: str,
+    total_prefix_tokens: int,
+    bucket_size: int = 128,
+    min_tokens: int = 1024,
+) -> str:
+    """Pad system content to the next OpenAI 128-token cache bucket boundary.
+
+    OpenAI caches in strict *bucket_size*-token increments after the initial
+    *min_tokens* minimum.  If the prompt is within ~32 tokens of the next
+    boundary, appending whitespace is nearly free and recovers the full
+    cache discount for those tokens.
+
+    Returns the (possibly padded) system content string.
+    """
+    if total_prefix_tokens < min_tokens:
+        return system_content  # below threshold, no benefit
+    next_boundary = ((total_prefix_tokens // bucket_size) + 1) * bucket_size
+    gap = next_boundary - total_prefix_tokens
+    if gap <= 32:  # within 32 tokens of next boundary — pad
+        padding = " " * (gap * 4)  # ~4 chars per token
+        return system_content + padding
+    return system_content
+
+
+def segregate_dynamic_content(messages: list[dict[str, Any]]) -> int:
+    """Return the index of the first dynamic (tool result) message in the most recent turn.
+
+    Walks backward from the end of *messages*, skipping the latest user
+    message, then skipping consecutive ``tool`` role results.  Returns the
+    index immediately *after* the last stable message — i.e., the first
+    dynamic tool result index.
+
+    If there are no trailing tool results, returns ``len(messages) - 1``
+    (the last user message itself is the boundary).
+    """
+    if not messages:
+        return 0
+    i = len(messages) - 1
+    # Skip last user message
+    if i >= 0 and messages[i].get("role") == "user":
+        i -= 1
+    # Skip consecutive tool results
+    while i >= 0 and messages[i].get("role") == "tool":
+        i -= 1
+    # The first dynamic message starts at i + 1
+    return i + 1
+
+
 def detect_tool_schema_changes(
     prev_tools: list[dict[str, Any]],
     curr_tools: list[dict[str, Any]],
